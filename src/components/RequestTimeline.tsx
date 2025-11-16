@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 interface RequestTimelineProps {
   statusHistory: StatusHistory[];
   currentStatus: RequestStatus;
+  orientation?: 'vertical' | 'horizontal';
 }
 
 const statusOrder: RequestStatus[] = [
@@ -30,7 +31,7 @@ const statusLabels: Record<RequestStatus, string> = {
   cancelled: 'Cancelled'
 };
 
-export function RequestTimeline({ statusHistory = [], currentStatus }: RequestTimelineProps) {
+export function RequestTimeline({ statusHistory = [], currentStatus, orientation = 'horizontal' }: RequestTimelineProps) {
   const getStatusIcon = (status: RequestStatus, isCompleted: boolean, isRejected: boolean) => {
     if (isRejected) {
       return <XCircle className="w-5 h-5 text-red-600" />;
@@ -44,6 +45,65 @@ export function RequestTimeline({ statusHistory = [], currentStatus }: RequestTi
   const currentIndex = statusOrder.indexOf(currentStatus);
   const isRejected = currentStatus === 'rejected' || currentStatus === 'cancelled';
 
+  if (orientation === 'horizontal') {
+    return (
+      <div className="bg-muted/30 rounded-lg p-4 mb-4">
+        <h4 className="font-semibold mb-4 text-sm">Timeline</h4>
+        <div className="flex items-start gap-2 overflow-x-auto pb-2">
+          {statusHistory.map((history, index) => {
+            const isLast = index === statusHistory.length - 1;
+            const isRejectedStatus = history.status === 'rejected' || history.status === 'cancelled';
+            
+            return (
+              <div key={index} className="flex items-start gap-2 flex-shrink-0">
+                <div className="flex flex-col items-center min-w-[120px]">
+                  <div className="flex items-center gap-2 w-full">
+                    {getStatusIcon(history.status, true, isRejectedStatus)}
+                    {!isLast && (
+                      <div className={`flex-1 h-0.5 ${isRejectedStatus ? 'bg-red-300' : 'bg-green-300'}`} />
+                    )}
+                  </div>
+                  <div className="mt-2 text-center w-full">
+                    <span className={`font-medium text-xs block ${isRejectedStatus ? 'text-red-600' : ''}`}>
+                      {statusLabels[history.status]}
+                    </span>
+                    <span className="text-xs text-muted-foreground block mt-1">
+                      {format(history.changedAt, 'MMM dd, HH:mm')}
+                    </span>
+                    <span className="text-xs text-muted-foreground block">
+                      {history.changedByName}
+                    </span>
+                    {history.comment && (
+                      <span className="text-xs text-muted-foreground italic block mt-1">
+                        "{history.comment}"
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          
+          {!isRejected && currentIndex < statusOrder.length - 1 && (
+            <div className="flex items-start gap-2 flex-shrink-0">
+              <div className="flex flex-col items-center min-w-[120px]">
+                <div className="flex items-center gap-2 w-full">
+                  <Circle className="w-5 h-5 text-gray-300" />
+                </div>
+                <div className="mt-2 text-center w-full">
+                  <span className="font-medium text-xs text-muted-foreground block">
+                    Next: {statusLabels[statusOrder[currentIndex + 1]]}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Vertical orientation (original)
   return (
     <div className="bg-muted/30 rounded-lg p-4 mb-4">
       <h4 className="font-semibold mb-3 text-sm">Timeline</h4>

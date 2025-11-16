@@ -14,7 +14,11 @@ import {
   ListTodo, 
   Plus,
   Settings,
-  Menu
+  LayoutGrid,
+  LayoutList,
+  Columns3,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -33,22 +37,29 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
 } from './ui/dropdown-menu';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useToast } from './ui/use-toast';
-import { differenceInDays, differenceInMonths } from 'date-fns';
+import { differenceInDays, differenceInMonths, addWeeks } from 'date-fns';
 import { DateRange } from 'react-day-picker';
+
+type FilterType = 'all' | 'pending_actions' | 'overdue' | 'dormant' | 'emergency' | 'top_system' | 'due_2weeks';
 
 export default function Dashboard() {
   const [requests, setRequests] = useState<Request[]>(mockRequests);
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeView, setActiveView] = useState<'dashboard' | 'all' | 'search'>('dashboard');
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [userRole] = useState<UserRole>(currentUser.role);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'title', 'status', 'priority', 'assignee', 'system', 'dueDate']);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   
   // Modal states
   const [scopeModalOpen, setScopeModalOpen] = useState(false);
@@ -61,13 +72,30 @@ export default function Dashboard() {
   const [testCaseText, setTestCaseText] = useState('');
   const [commentText, setCommentText] = useState('');
   
-  // New request form
   const [newRequestTitle, setNewRequestTitle] = useState('');
   const [newRequestDescription, setNewRequestDescription] = useState('');
   const [newRequestPriority, setNewRequestPriority] = useState<'low' | 'medium' | 'high' | 'urgent' | 'emergency'>('medium');
   const [newRequestSystem, setNewRequestSystem] = useState('');
   
   const { toast } = useToast();
+
+  const availableColumns = [
+    { id: 'id', label: 'ID' },
+    { id: 'title', label: 'Title' },
+    { id: 'status', label: 'Status' },
+    { id: 'priority', label: 'Priority' },
+    { id: 'assignee', label: 'Assignee' },
+    { id: 'system', label: 'System' },
+    { id: 'dueDate', label: 'Due Date' }
+  ];
+
+  const toggleColumn = (columnId: string) => {
+    setVisibleColumns(prev => 
+      prev.includes(columnId) 
+        ? prev.filter(id => id !== columnId)
+        : [...prev, columnId]
+    );
+  };
 
   // Calculate gauge metrics
   const gaugeMetrics = useMemo(() => {
@@ -104,8 +132,27 @@ export default function Dashboard() {
     return { ongoing, pendingActions, overdue, dormant, emergency };
   }, [requests, userRole]);
 
+  const topSystem = useMemo(() => {
+    const systemCounts = requests.reduce((acc, r) => {
+      if (r.system && r.status !== 'completed' && r.status !== 'cancelled') {
+        acc[r.system] = (acc[r.system] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+    
+    const sorted = Object.entries(systemCounts).sort((a, b) => b[1] - a[1]);
+    return sorted[0]?.[0] || null;
+  }, [requests]);
+
   const parseSearchQuery = (query: string) => {
     const filters: any = {};
+    
+    // Handle LIKE operator with *
+    if (query.includes('*')) {
+      const likePattern = query.replace(/\*/g, '');
+      return { likePattern };
+    }
+    
     const parts = query.split(/\s+(AND|OR)\s+/i);
     
     parts.forEach(part => {
@@ -120,23 +167,56 @@ export default function Dashboard() {
 
   const filteredRequests = useMemo(() => {
     let filtered = requests;
+    const now = new Date();
+    const twoWeeksFromNow = addWeeks(now, 2);
 
-    // Filter by user role and view
-    if (activeView === 'dashboard') {
-      if (userRole === 'developer') {
-        filtered = requests.filter(r => r.assignedTo === currentUser.id);
-      } else if (userRole === 'line_manager') {
+    // Apply filter
+    switch (activeFilter) {
+      case 'pending_actions':
+        if (userRole === 'developer') {
+          filtered = requests.filter(r => 
+            r.assignedTo === currentUser.id && 
+            (r.status === 'approved' || r.status === 'scope_defined')
+          );
+        } else if (userRole === 'line_manager') {
+          filtered = requests.filter(r => 
+            r.status === 'pending' || r.status === 'test_cases_added'
+          );
+        } else if (userRole === 'end_user') {
+          filtered = requests.filter(r => 
+            r.status === 'development_complete' && r.createdBy === currentUser.id
+          );
+        }
+        break;
+      case 'overdue':
         filtered = requests.filter(r => 
-          r.status === 'pending' || 
-          r.status === 'test_cases_added' ||
-          r.lineManager === currentUser.id
+          r.dueDate && new Date(r.dueDate) < now && 
+          r.status !== 'completed' && r.status !== 'cancelled'
         );
-      } else if (userRole === 'end_user') {
+        break;
+      case 'dormant':
+        filtered = requests.filter(r => {
+          const daysSinceUpdate = differenceInDays(now, new Date(r.updatedAt));
+          return daysSinceUpdate > 30 && 
+            r.status !== 'completed' && r.status !== 'cancelled';
+        });
+        break;
+      case 'emergency':
+        filtered = requests.filter(r => r.priority === 'emergency');
+        break;
+      case 'top_system':
+        if (topSystem) {
+          filtered = requests.filter(r => r.system === topSystem);
+        }
+        break;
+      case 'due_2weeks':
         filtered = requests.filter(r => 
-          r.createdBy === currentUser.id || 
-          r.status === 'development_complete'
+          r.dueDate && 
+          new Date(r.dueDate) >= now && 
+          new Date(r.dueDate) <= twoWeeksFromNow &&
+          r.status !== 'completed' && r.status !== 'cancelled'
         );
-      }
+        break;
     }
 
     // Apply search filter
@@ -144,41 +224,58 @@ export default function Dashboard() {
       const query = searchQuery.toLowerCase();
       const filters = parseSearchQuery(query);
       
-      filtered = filtered.filter(r => {
-        // Simple text search
-        const simpleMatch = 
-          r.id.toLowerCase().includes(query) ||
-          r.title.toLowerCase().includes(query) ||
-          r.description.toLowerCase().includes(query) ||
-          r.status.toLowerCase().includes(query) ||
-          r.assignedToName?.toLowerCase().includes(query) ||
-          r.createdByName.toLowerCase().includes(query) ||
-          r.system?.toLowerCase().includes(query);
-        
-        // Advanced filter search
-        let filterMatch = true;
-        if (Object.keys(filters).length > 0) {
-          if (filters.id && !r.id.toLowerCase().includes(filters.id)) filterMatch = false;
-          if (filters.title && !r.title.toLowerCase().includes(filters.title)) filterMatch = false;
-          if (filters.assignee && !r.assignedToName?.toLowerCase().includes(filters.assignee)) filterMatch = false;
-          if (filters.status && r.status !== filters.status) filterMatch = false;
-          if (filters.priority && r.priority !== filters.priority) filterMatch = false;
-          if (filters.creator && !r.createdByName.toLowerCase().includes(filters.creator)) filterMatch = false;
-          if (filters.system && !r.system?.toLowerCase().includes(filters.system)) filterMatch = false;
-        }
-        
-        return simpleMatch || filterMatch;
-      });
+      if (filters.likePattern) {
+        const pattern = filters.likePattern.toLowerCase();
+        filtered = filtered.filter(r => 
+          r.id.toLowerCase().includes(pattern) ||
+          r.title.toLowerCase().includes(pattern) ||
+          r.description.toLowerCase().includes(pattern) ||
+          r.status.toLowerCase().includes(pattern) ||
+          r.assignedToName?.toLowerCase().includes(pattern) ||
+          r.createdByName.toLowerCase().includes(pattern) ||
+          r.system?.toLowerCase().includes(pattern)
+        );
+      } else {
+        filtered = filtered.filter(r => {
+          const simpleMatch = 
+            r.id.toLowerCase().includes(query) ||
+            r.title.toLowerCase().includes(query) ||
+            r.description.toLowerCase().includes(query) ||
+            r.status.toLowerCase().includes(query) ||
+            r.assignedToName?.toLowerCase().includes(query) ||
+            r.createdByName.toLowerCase().includes(query) ||
+            r.system?.toLowerCase().includes(query);
+          
+          let filterMatch = true;
+          if (Object.keys(filters).length > 0) {
+            if (filters.id && !r.id.toLowerCase().includes(filters.id)) filterMatch = false;
+            if (filters.title && !r.title.toLowerCase().includes(filters.title)) filterMatch = false;
+            if (filters.assignee && !r.assignedToName?.toLowerCase().includes(filters.assignee)) filterMatch = false;
+            if (filters.status && r.status !== filters.status) filterMatch = false;
+            if (filters.priority && r.priority !== filters.priority) filterMatch = false;
+            if (filters.creator && !r.createdByName.toLowerCase().includes(filters.creator)) filterMatch = false;
+            if (filters.system && !r.system?.toLowerCase().includes(filters.system)) filterMatch = false;
+          }
+          
+          return simpleMatch || filterMatch;
+        });
+      }
     }
 
     return filtered;
-  }, [requests, searchQuery, activeView, userRole]);
+  }, [requests, searchQuery, activeFilter, userRole, topSystem]);
+
+  const paginatedRequests = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredRequests.slice(startIndex, endIndex);
+  }, [filteredRequests, currentPage]);
+
+  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    if (query) {
-      setActiveView('search');
-    }
+    setCurrentPage(1);
   };
 
   const handleNotificationClick = (notification: Notification) => {
@@ -580,40 +677,207 @@ export default function Dashboard() {
           <AdvancedSearchBar onSearch={handleSearch} />
         </div>
 
-        {/* Navigation Tabs */}
-        <Tabs value={activeView} onValueChange={(v) => setActiveView(v as any)} className="mb-6">
-          <TabsList>
-            <TabsTrigger value="dashboard" className="flex items-center gap-2">
-              <LayoutDashboard className="w-4 h-4" />
-              My Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="all" className="flex items-center gap-2">
-              <ListTodo className="w-4 h-4" />
-              All Requests
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Filters */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Button 
+            variant={activeFilter === 'all' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('all'); setCurrentPage(1); }}
+            size="sm"
+          >
+            All Requests
+          </Button>
+          <Button 
+            variant={activeFilter === 'pending_actions' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('pending_actions'); setCurrentPage(1); }}
+            size="sm"
+          >
+            Pending Actions ({gaugeMetrics.pendingActions})
+          </Button>
+          <Button 
+            variant={activeFilter === 'overdue' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('overdue'); setCurrentPage(1); }}
+            size="sm"
+          >
+            Overdue ({gaugeMetrics.overdue})
+          </Button>
+          <Button 
+            variant={activeFilter === 'dormant' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('dormant'); setCurrentPage(1); }}
+            size="sm"
+          >
+            Dormant ({gaugeMetrics.dormant})
+          </Button>
+          <Button 
+            variant={activeFilter === 'emergency' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('emergency'); setCurrentPage(1); }}
+            size="sm"
+          >
+            Emergency ({gaugeMetrics.emergency})
+          </Button>
+          {topSystem && (
+            <Button 
+              variant={activeFilter === 'top_system' ? 'default' : 'outline'}
+              onClick={() => { setActiveFilter('top_system'); setCurrentPage(1); }}
+              size="sm"
+            >
+              {topSystem}
+            </Button>
+          )}
+          <Button 
+            variant={activeFilter === 'due_2weeks' ? 'default' : 'outline'}
+            onClick={() => { setActiveFilter('due_2weeks'); setCurrentPage(1); }}
+            size="sm"
+          >
+            Due Next 2 Weeks
+          </Button>
+        </div>
+
+        {/* View Controls */}
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+            >
+              <LayoutList className="w-4 h-4 mr-2" />
+              List
+            </Button>
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('grid')}
+            >
+              <LayoutGrid className="w-4 h-4 mr-2" />
+              Grid
+            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Columns3 className="w-4 h-4 mr-2" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Visible Columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {availableColumns.map(col => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={visibleColumns.includes(col.id)}
+                    onCheckedChange={() => toggleColumn(col.id)}
+                  >
+                    {col.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="text-sm text-muted-foreground">
+            Showing {paginatedRequests.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredRequests.length)} of {filteredRequests.length} requests
+          </div>
+        </div>
+
+        {/* Column Headers for List View */}
+        {viewMode === 'list' && paginatedRequests.length > 0 && (
+          <div className="mb-2 px-2">
+            <div className="grid grid-cols-[100px_1fr_120px_120px_140px_180px_120px] gap-3 text-xs font-semibold text-muted-foreground">
+              {visibleColumns.includes('id') && <div>ID</div>}
+              {visibleColumns.includes('title') && <div>Title</div>}
+              {visibleColumns.includes('status') && <div className="text-center">Status</div>}
+              {visibleColumns.includes('priority') && <div className="text-center">Priority</div>}
+              {visibleColumns.includes('assignee') && <div className="text-center">Assignee</div>}
+              {visibleColumns.includes('system') && <div className="text-center">System</div>}
+              {visibleColumns.includes('dueDate') && <div className="text-center">Due Date</div>}
+            </div>
+          </div>
+        )}
 
         {/* Requests List */}
-        <div className="space-y-3">
-          {filteredRequests.length > 0 ? (
-            filteredRequests.map((request) => (
-              <RequestListItem
-                key={request.id}
-                request={request}
-                onClick={setSelectedRequest}
-              />
-            ))
-          ) : (
-            <div className="text-center py-12 border rounded-lg">
-              <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <h3 className="text-lg font-semibold mb-2">No requests found</h3>
-              <p className="text-muted-foreground">
-                {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current view'}
-              </p>
+        {viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {paginatedRequests.length > 0 ? (
+              paginatedRequests.map((request) => (
+                <RequestListItem
+                  key={request.id}
+                  request={request}
+                  onClick={setSelectedRequest}
+                  viewMode="grid"
+                  visibleColumns={visibleColumns}
+                />
+              ))
+            ) : (
+              <div className="col-span-full text-center py-12 border rounded-lg">
+                <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">No requests found</h3>
+                <p className="text-muted-foreground">
+                  {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current filter'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {paginatedRequests.length > 0 ? (
+              paginatedRequests.map((request) => (
+                <RequestListItem
+                  key={request.id}
+                  request={request}
+                  onClick={setSelectedRequest}
+                  viewMode="list"
+                  visibleColumns={visibleColumns}
+                />
+              ))
+            ) : (
+              <div className="text-center py-12 border rounded-lg">
+                <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">No requests found</h3>
+                <p className="text-muted-foreground">
+                  {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current filter'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <Button
+                  key={page}
+                  variant={currentPage === page ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCurrentPage(page)}
+                  className="w-8"
+                >
+                  {page}
+                </Button>
+              ))}
             </div>
-          )}
-        </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </main>
 
       {/* Request Detail Modal */}

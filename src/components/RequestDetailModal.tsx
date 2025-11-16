@@ -1,37 +1,28 @@
 import { Request, UserRole } from '@/types/request';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { StatusBadge } from './StatusBadge';
 import { PriorityBadge } from './PriorityBadge';
 import { RequestTimeline } from './RequestTimeline';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Calendar, User, Clock, CheckCircle2, FileText, Paperclip, Download } from 'lucide-react';
+import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { ScrollArea } from './ui/scroll-area';
+import { Separator } from './ui/separator';
+import { Calendar, User, MessageSquare, Paperclip, Edit } from 'lucide-react';
 import { format } from 'date-fns';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface RequestDetailModalProps {
   request: Request | null;
   open: boolean;
   onClose: () => void;
   userRole: UserRole;
-  onApprove?: () => void;
-  onReject?: () => void;
-  onAddScope?: () => void;
-  onAddTestCases?: () => void;
-  onStartDevelopment?: () => void;
-  onCompleteDevelopment?: () => void;
-  onValidate?: () => void;
-  onAddComment?: () => void;
-  onEdit?: () => void;
-  onUploadAttachment?: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onAddScope: () => void;
+  onAddTestCases: () => void;
+  onStartDevelopment: () => void;
+  onCompleteDevelopment: () => void;
+  onValidate: () => void;
+  onAddComment: () => void;
+  onEdit: () => void;
 }
 
 export function RequestDetailModal({
@@ -47,262 +38,215 @@ export function RequestDetailModal({
   onCompleteDevelopment,
   onValidate,
   onAddComment,
-  onEdit,
-  onUploadAttachment
+  onEdit
 }: RequestDetailModalProps) {
   if (!request) return null;
 
   const canApprove = userRole === 'line_manager' && 
     (request.status === 'pending' || request.status === 'test_cases_added');
-  
   const canAddScope = userRole === 'line_manager' && request.status === 'pending';
-  
   const canAddTestCases = userRole === 'developer' && request.status === 'scope_defined';
-  
   const canStartDev = userRole === 'developer' && request.status === 'approved';
-  
   const canCompleteDev = userRole === 'developer' && request.status === 'in_progress';
-  
   const canValidate = userRole === 'end_user' && request.status === 'development_complete';
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh]">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between">
             <div className="flex-1">
               <DialogTitle className="text-2xl mb-2">{request.title}</DialogTitle>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-mono text-muted-foreground">{request.id}</span>
                 <StatusBadge status={request.status} />
                 <PriorityBadge priority={request.priority} />
-                {request.system && (
-                  <span className="text-xs bg-secondary px-2 py-1 rounded">
-                    {request.system}
-                  </span>
-                )}
               </div>
             </div>
-            {onEdit && (
-              <Button variant="outline" size="sm" onClick={onEdit}>
-                Edit
-              </Button>
-            )}
+            <Button variant="ghost" size="icon" onClick={onEdit}>
+              <Edit className="w-4 h-4" />
+            </Button>
           </div>
         </DialogHeader>
 
-        <RequestTimeline statusHistory={request.statusHistory} currentStatus={request.status} />
+        <ScrollArea className="max-h-[calc(90vh-200px)]">
+          <div className="space-y-6 pr-4">
+            {/* Timeline - Horizontal */}
+            <RequestTimeline 
+              statusHistory={request.statusHistory} 
+              currentStatus={request.status}
+              orientation="horizontal"
+            />
 
-        <ScrollArea className="max-h-[50vh]">
-          <Tabs defaultValue="details" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="scope">Scope & Tests</TabsTrigger>
-              <TabsTrigger value="attachments">
-                Attachments ({request.attachments?.length || 0})
-              </TabsTrigger>
-              <TabsTrigger value="comments">Comments ({request.comments.length})</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="details" className="space-y-4 mt-4">
+            {/* Request Details */}
+            <div className="space-y-4">
               <div>
-                <h4 className="font-semibold mb-2">Description</h4>
-                <p className="text-muted-foreground">{request.description}</p>
+                <h4 className="font-semibold mb-2 text-sm">Description</h4>
+                <p className="text-sm text-muted-foreground">{request.description}</p>
               </div>
-
-              <Separator />
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
                     <User className="w-4 h-4" />
                     Created By
                   </h4>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="w-8 h-8">
-                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${request.createdByName}`} />
-                      <AvatarFallback>{request.createdByName[0]}</AvatarFallback>
-                    </Avatar>
-                    <span>{request.createdByName}</span>
-                  </div>
+                  <p className="text-sm text-muted-foreground">{request.createdByName}</p>
+                  <p className="text-xs text-muted-foreground">{format(request.createdAt, 'MMM dd, yyyy HH:mm')}</p>
                 </div>
 
                 {request.assignedToName && (
                   <div>
-                    <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
                       <User className="w-4 h-4" />
                       Assigned To
                     </h4>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-8 h-8">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${request.assignedToName}`} />
-                        <AvatarFallback>{request.assignedToName[0]}</AvatarFallback>
-                      </Avatar>
-                      <span>{request.assignedToName}</span>
-                    </div>
+                    <p className="text-sm text-muted-foreground">{request.assignedToName}</p>
                   </div>
                 )}
 
-                <div>
-                  <h4 className="font-semibold mb-2 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Created Date
-                  </h4>
-                  <p className="text-muted-foreground">{format(request.createdAt, 'MMM dd, yyyy')}</p>
-                </div>
+                {request.lineManagerName && (
+                  <div>
+                    <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      Line Manager
+                    </h4>
+                    <p className="text-sm text-muted-foreground">{request.lineManagerName}</p>
+                  </div>
+                )}
 
                 {request.dueDate && (
                   <div>
-                    <h4 className="font-semibold mb-2 flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
+                    <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
                       Due Date
                     </h4>
-                    <p className="text-muted-foreground">{format(request.dueDate, 'MMM dd, yyyy')}</p>
+                    <p className="text-sm text-muted-foreground">{format(request.dueDate, 'MM/dd/yyyy')}</p>
+                  </div>
+                )}
+
+                {request.system && (
+                  <div>
+                    <h4 className="font-semibold mb-2 text-sm">System</h4>
+                    <p className="text-sm text-muted-foreground">{request.system}</p>
                   </div>
                 )}
               </div>
-            </TabsContent>
 
-            <TabsContent value="scope" className="space-y-4 mt-4">
-              <div>
-                <h4 className="font-semibold mb-2 flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Scope Definition
-                </h4>
-                {request.scope ? (
-                  <p className="text-muted-foreground">{request.scope}</p>
-                ) : (
-                  <p className="text-muted-foreground italic">No scope defined yet</p>
-                )}
-              </div>
-
-              <Separator />
-
-              <div>
-                <h4 className="font-semibold mb-2 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Test Cases
-                </h4>
-                {request.testCases && request.testCases.length > 0 ? (
-                  <ul className="space-y-2">
-                    {request.testCases.map((testCase, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 mt-0.5 text-green-600" />
-                        <span className="text-muted-foreground">{testCase}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-muted-foreground italic">No test cases defined yet</p>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="attachments" className="space-y-3 mt-4">
-              {onUploadAttachment && (
-                <Button onClick={onUploadAttachment} variant="outline" className="w-full">
-                  <Paperclip className="w-4 h-4 mr-2" />
-                  Upload Attachment
-                </Button>
+              {request.scope && (
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm">Scope</h4>
+                  <div className="bg-muted/30 rounded-lg p-3">
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{request.scope}</p>
+                  </div>
+                </div>
               )}
-              
-              {request.attachments && request.attachments.length > 0 ? (
-                request.attachments.map((attachment) => (
-                  <div key={attachment.id} className="border rounded-lg p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Paperclip className="w-5 h-5 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium text-sm">{attachment.filename}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatFileSize(attachment.size)} • Uploaded by {attachment.uploadedByName} • {format(attachment.uploadedAt, 'MMM dd, yyyy')}
-                        </div>
+
+              {request.testCases && request.testCases.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm">Test Cases</h4>
+                  <div className="bg-muted/30 rounded-lg p-3">
+                    <ul className="list-disc list-inside space-y-1">
+                      {request.testCases.map((tc, idx) => (
+                        <li key={idx} className="text-sm text-muted-foreground">{tc}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {request.attachments && request.attachments.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
+                    <Paperclip className="w-4 h-4" />
+                    Attachments
+                  </h4>
+                  <div className="space-y-2">
+                    {request.attachments.map((att) => (
+                      <div key={att.id} className="flex items-center gap-2 text-sm p-2 bg-muted/30 rounded">
+                        <Paperclip className="w-4 h-4" />
+                        <span>{att.filename}</span>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {(att.size / 1024).toFixed(1)} KB
+                        </span>
                       </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      <Download className="w-4 h-4" />
-                    </Button>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground italic py-8">No attachments</p>
+                </div>
               )}
-            </TabsContent>
 
-            <TabsContent value="comments" className="space-y-4 mt-4">
-              {request.comments.length > 0 ? (
-                request.comments.map((comment) => (
-                  <div key={comment.id} className="border rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="w-8 h-8">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.userName}`} />
-                        <AvatarFallback>{comment.userName[0]}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold">{comment.userName}</span>
+              {request.comments && request.comments.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4" />
+                    Comments
+                  </h4>
+                  <div className="space-y-3">
+                    {request.comments.map((comment) => (
+                      <div key={comment.id} className="bg-muted/30 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold text-sm">{comment.userName}</span>
                           <span className="text-xs text-muted-foreground">
                             {format(comment.createdAt, 'MMM dd, yyyy HH:mm')}
                           </span>
                         </div>
-                        <p className="text-muted-foreground">{comment.content}</p>
+                        <p className="text-sm text-muted-foreground">{comment.content}</p>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground italic py-8">No comments yet</p>
+                </div>
               )}
-            </TabsContent>
-          </Tabs>
+            </div>
+          </div>
         </ScrollArea>
 
         <Separator />
 
+        {/* Action Buttons */}
         <div className="flex gap-2 flex-wrap">
-          {canApprove && onApprove && (
-            <Button onClick={onApprove} className="bg-green-600 hover:bg-green-700">
-              Approve
-            </Button>
-          )}
-          {canApprove && onReject && (
-            <Button onClick={onReject} variant="destructive">
-              Reject
-            </Button>
-          )}
-          {canAddScope && onAddScope && (
-            <Button onClick={onAddScope}>
+          <Button onClick={onAddComment} variant="outline" size="sm">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Add Comment
+          </Button>
+
+          {canAddScope && (
+            <Button onClick={onAddScope} size="sm">
               Add Scope
             </Button>
           )}
-          {canAddTestCases && onAddTestCases && (
-            <Button onClick={onAddTestCases}>
+
+          {canAddTestCases && (
+            <Button onClick={onAddTestCases} size="sm">
               Add Test Cases
             </Button>
           )}
-          {canStartDev && onStartDevelopment && (
-            <Button onClick={onStartDevelopment}>
+
+          {canApprove && (
+            <>
+              <Button onClick={onApprove} size="sm">
+                Approve
+              </Button>
+              <Button onClick={onReject} variant="destructive" size="sm">
+                Reject
+              </Button>
+            </>
+          )}
+
+          {canStartDev && (
+            <Button onClick={onStartDevelopment} size="sm">
               Start Development
             </Button>
           )}
-          {canCompleteDev && onCompleteDevelopment && (
-            <Button onClick={onCompleteDevelopment}>
-              Mark as Complete
+
+          {canCompleteDev && (
+            <Button onClick={onCompleteDevelopment} size="sm">
+              Complete Development
             </Button>
           )}
-          {canValidate && onValidate && (
-            <Button onClick={onValidate} className="bg-green-600 hover:bg-green-700">
-              Validate & Accept
-            </Button>
-          )}
-          {onAddComment && (
-            <Button onClick={onAddComment} variant="outline">
-              Add Comment
+
+          {canValidate && (
+            <Button onClick={onValidate} size="sm">
+              Validate & Complete
             </Button>
           )}
         </div>
