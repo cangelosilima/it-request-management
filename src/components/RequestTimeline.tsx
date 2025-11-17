@@ -9,25 +9,33 @@ interface RequestTimelineProps {
 }
 
 const statusOrder: RequestStatus[] = [
-  'pending',
-  'scope_defined',
-  'test_cases_added',
-  'approved',
-  'in_progress',
-  'development_complete',
+  'pending_manager_approval',
+  'pending_user_approval',
+  'user_approved',
+  'manager_review_test_cases',
+  'pending_design_review',
+  'in_development',
+  'uat_release',
+  'uat_signoff',
+  'cab_review',
+  'production_release',
   'completed'
 ];
 
 const statusLabels: Record<RequestStatus, string> = {
-  pending: 'Pending',
-  scope_defined: 'Scope Defined',
-  test_cases_added: 'Test Cases Added',
-  approved: 'Approved',
-  in_progress: 'In Progress',
-  development_complete: 'Development Complete',
+  pending_manager_approval: 'Manager Approval',
+  pending_user_approval: 'User Approval',
+  user_approved: 'User Approved',
+  user_rejected: 'User Rejected',
+  manager_review_test_cases: 'Manager Review',
+  pending_design_review: 'Design Review',
+  in_development: 'Development',
+  uat_release: 'UAT Release',
+  uat_signoff: 'UAT Sign-off',
+  cab_review: 'CAB Review',
+  production_release: 'Production',
   completed: 'Completed',
   rejected: 'Rejected',
-  rework_needed: 'Rework Needed',
   cancelled: 'Cancelled'
 };
 
@@ -43,7 +51,7 @@ export function RequestTimeline({ statusHistory = [], currentStatus, orientation
   };
 
   const currentIndex = statusOrder.indexOf(currentStatus);
-  const isRejected = currentStatus === 'rejected' || currentStatus === 'cancelled';
+  const isRejected = currentStatus === 'rejected' || currentStatus === 'cancelled' || currentStatus === 'user_rejected';
 
   if (orientation === 'horizontal') {
     return (
@@ -52,7 +60,7 @@ export function RequestTimeline({ statusHistory = [], currentStatus, orientation
         <div className="flex items-start gap-2 overflow-x-auto pb-2">
           {statusHistory.map((history, index) => {
             const isLast = index === statusHistory.length - 1;
-            const isRejectedStatus = history.status === 'rejected' || history.status === 'cancelled';
+            const isRejectedStatus = history.status === 'rejected' || history.status === 'cancelled' || history.status === 'user_rejected';
             
             return (
               <div key={index} className="flex items-start gap-2 flex-shrink-0">
@@ -103,14 +111,14 @@ export function RequestTimeline({ statusHistory = [], currentStatus, orientation
     );
   }
 
-  // Vertical orientation (original)
+  // Vertical orientation
   return (
     <div className="bg-muted/30 rounded-lg p-4 mb-4">
       <h4 className="font-semibold mb-3 text-sm">Timeline</h4>
       <div className="space-y-3">
         {statusHistory.map((history, index) => {
           const isLast = index === statusHistory.length - 1;
-          const isRejectedStatus = history.status === 'rejected' || history.status === 'cancelled';
+          const isRejectedStatus = history.status === 'rejected' || history.status === 'cancelled' || history.status === 'user_rejected';
           
           return (
             <div key={index} className="flex gap-3">

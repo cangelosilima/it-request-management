@@ -1,353 +1,389 @@
-import { Request, User, Notification, UserRole, StatusHistory, Attachment } from '@/types/request';
+import { Request, User, Notification, SystemScenario } from '@/types/request';
 
-// Mock users
 export const mockUsers: User[] = [
   {
-    id: '1',
-    name: 'John Developer',
-    email: 'john.dev@company.com',
-    role: 'developer',
+    id: 'u1',
+    name: 'John Smith',
+    email: 'john.smith@company.com',
+    role: 'line_manager',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=John',
+    team: 'IT Operations'
+  },
+  {
+    id: 'u2',
+    name: 'Sarah Johnson',
+    email: 'sarah.johnson@company.com',
+    role: 'developer',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah',
     team: 'Development Team A'
   },
   {
-    id: '2',
-    name: 'Sarah Manager',
-    email: 'sarah.mgr@company.com',
-    role: 'line_manager',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah',
-    team: 'Management'
-  },
-  {
-    id: '3',
-    name: 'Mike User',
-    email: 'mike.user@company.com',
-    role: 'end_user',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mike',
-    team: 'Sales'
-  },
-  {
-    id: '4',
-    name: 'Emily Developer',
-    email: 'emily.dev@company.com',
+    id: 'u3',
+    name: 'Mike Chen',
+    email: 'mike.chen@company.com',
     role: 'developer',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emily',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mike',
     team: 'Development Team B'
   },
   {
-    id: '5',
-    name: 'Lisa User',
-    email: 'lisa.user@company.com',
+    id: 'u4',
+    name: 'Emily Davis',
+    email: 'emily.davis@company.com',
     role: 'end_user',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emily',
+    team: 'Sales'
+  },
+  {
+    id: 'u5',
+    name: 'Robert Wilson',
+    email: 'robert.wilson@company.com',
+    role: 'end_user',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Robert',
     team: 'Marketing'
+  },
+  {
+    id: 'u6',
+    name: 'Lisa Anderson',
+    email: 'lisa.anderson@company.com',
+    role: 'developer',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa',
+    team: 'Development Team A'
+  },
+  {
+    id: 'u7',
+    name: 'David Martinez',
+    email: 'david.martinez@company.com',
+    role: 'devops',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=David',
+    team: 'DevOps'
   }
 ];
 
-// Mock requests
+export const systemScenarios: SystemScenario[] = [
+  {
+    id: 'sc1',
+    systemName: 'CRM System',
+    scenarioName: 'User Login',
+    description: 'Verify user can login with valid credentials'
+  },
+  {
+    id: 'sc2',
+    systemName: 'CRM System',
+    scenarioName: 'Create Contact',
+    description: 'Verify user can create a new contact'
+  },
+  {
+    id: 'sc3',
+    systemName: 'CRM System',
+    scenarioName: 'Update Contact',
+    description: 'Verify user can update existing contact information'
+  },
+  {
+    id: 'sc4',
+    systemName: 'Inventory System',
+    scenarioName: 'Add Product',
+    description: 'Verify user can add a new product to inventory'
+  },
+  {
+    id: 'sc5',
+    systemName: 'Inventory System',
+    scenarioName: 'Stock Update',
+    description: 'Verify stock levels update correctly'
+  }
+];
+
+export let currentUser: User = mockUsers[1]; // Default to developer
+
+export const setCurrentUser = (user: User) => {
+  currentUser = user;
+};
+
+const now = new Date();
+const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
 export const mockRequests: Request[] = [
   {
     id: 'REQ-001',
-    title: 'New Employee Onboarding Portal',
-    description: 'Create a portal for new employee onboarding with document upload and task tracking',
-    status: 'pending',
+    title: 'Add export functionality to reports',
+    type: 'enhancement',
+    description: 'Users need ability to export reports to Excel and PDF formats',
+    implementationScope: 'Add export buttons to all report pages with format selection dropdown',
+    status: 'pending_manager_approval',
     priority: 'high',
-    createdBy: '3',
-    createdByName: 'Mike User',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-01-15'),
-    dueDate: new Date('2024-02-15'),
+    system: 'CRM System',
+    requestors: ['u4', 'u5'],
+    requestorNames: ['Emily Davis', 'Robert Wilson'],
+    createdBy: 'u4',
+    createdByName: 'Emily Davis',
+    lineManager: 'u1',
+    lineManagerName: 'John Smith',
+    createdAt: yesterday,
+    updatedAt: yesterday,
+    dueDate: nextWeek,
+    testCases: [],
+    releases: [],
     comments: [],
     statusHistory: [
       {
-        status: 'pending',
-        changedBy: '3',
-        changedByName: 'Mike User',
-        changedAt: new Date('2024-01-15'),
-        comment: 'Initial request submitted'
+        status: 'pending_manager_approval',
+        changedBy: 'u4',
+        changedByName: 'Emily Davis',
+        changedAt: yesterday,
+        comment: 'Request created'
       }
     ],
-    attachments: [],
-    system: 'HR Portal'
+    attachments: []
   },
   {
     id: 'REQ-002',
-    title: 'Inventory Management System Update',
-    description: 'Add barcode scanning functionality to existing inventory system',
-    status: 'in_progress',
-    priority: 'medium',
-    createdBy: '5',
-    createdByName: 'Lisa User',
-    assignedTo: '1',
-    assignedToName: 'John Developer',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-20'),
-    dueDate: new Date('2024-02-10'),
-    scope: 'Implement barcode scanning using device camera, integrate with existing database',
-    testCases: ['Scan valid barcode', 'Handle invalid barcode', 'Update inventory count'],
+    title: 'Critical login bug - users locked out',
+    type: 'bug_fix',
+    description: 'Multiple users reporting being locked out after 3 failed login attempts with no unlock mechanism',
+    implementationScope: 'Fix account unlock mechanism and add admin override capability',
+    status: 'in_development',
+    priority: 'emergency',
+    system: 'CRM System',
+    requestors: ['u4'],
+    requestorNames: ['Emily Davis'],
+    assignedDevelopers: ['u2', 'u6'],
+    assignedDeveloperNames: ['Sarah Johnson', 'Lisa Anderson'],
+    createdBy: 'u4',
+    createdByName: 'Emily Davis',
+    lineManager: 'u1',
+    lineManagerName: 'John Smith',
+    createdAt: twoWeeksAgo,
+    updatedAt: yesterday,
+    dueDate: now,
+    testCases: [
+      {
+        id: 'tc1',
+        description: 'Verify user can unlock account after 3 failed attempts',
+        status: 'pending',
+        isPreDefined: false
+      },
+      {
+        id: 'tc2',
+        description: 'Verify admin can manually unlock user accounts',
+        status: 'pending',
+        isPreDefined: false
+      }
+    ],
+    impactAnalysis: 'High impact - affects all users. No data loss risk. Requires immediate deployment.',
+    architectureDesign: 'Add unlock token generation service and email notification system',
+    designReview: 'Reviewed and approved - follows existing authentication patterns',
+    releases: [],
     comments: [
       {
         id: 'c1',
         requestId: 'REQ-002',
-        userId: '1',
-        userName: 'John Developer',
-        content: 'Started working on the barcode integration',
-        createdAt: new Date('2024-01-20')
+        userId: 'u2',
+        userName: 'Sarah Johnson',
+        content: 'Working on the fix, should be ready for testing by EOD',
+        createdAt: yesterday
       }
     ],
     statusHistory: [
       {
-        status: 'pending',
-        changedBy: '5',
-        changedByName: 'Lisa User',
-        changedAt: new Date('2024-01-10')
+        status: 'pending_manager_approval',
+        changedBy: 'u4',
+        changedByName: 'Emily Davis',
+        changedAt: twoWeeksAgo,
+        comment: 'Emergency bug reported'
       },
       {
-        status: 'scope_defined',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2024-01-12'),
-        comment: 'Scope approved'
+        status: 'user_approved',
+        changedBy: 'u1',
+        changedByName: 'John Smith',
+        changedAt: twoWeeksAgo,
+        comment: 'Approved - Emergency priority'
       },
       {
-        status: 'approved',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2024-01-15'),
+        status: 'manager_review_test_cases',
+        changedBy: 'u2',
+        changedByName: 'Sarah Johnson',
+        changedAt: lastWeek,
+        comment: 'Test cases and impact analysis submitted'
+      },
+      {
+        status: 'in_development',
+        changedBy: 'u1',
+        changedByName: 'John Smith',
+        changedAt: lastWeek,
         comment: 'Approved for development'
-      },
-      {
-        status: 'in_progress',
-        changedBy: '1',
-        changedByName: 'John Developer',
-        changedAt: new Date('2024-01-20')
       }
     ],
-    attachments: [
-      {
-        id: 'att1',
-        filename: 'requirements.pdf',
-        url: '#',
-        uploadedBy: '5',
-        uploadedByName: 'Lisa User',
-        uploadedAt: new Date('2024-01-10'),
-        stage: 'pending',
-        size: 245000
-      }
-    ],
-    system: 'Inventory System'
+    attachments: []
   },
   {
     id: 'REQ-003',
-    title: 'Customer Feedback Dashboard',
-    description: 'Build analytics dashboard for customer feedback and ratings',
-    status: 'test_cases_added',
+    title: 'Update contact form validation',
+    type: 'small_enhancement',
+    description: 'Add phone number format validation to contact form',
+    implementationScope: 'Add regex validation for phone numbers in contact creation/edit forms',
+    status: 'uat_signoff',
     priority: 'medium',
-    createdBy: '3',
-    createdByName: 'Mike User',
-    assignedTo: '4',
-    assignedToName: 'Emily Developer',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2024-01-12'),
-    updatedAt: new Date('2024-01-18'),
-    dueDate: new Date('2024-02-20'),
-    scope: 'Create dashboard with charts showing feedback trends, ratings distribution, and sentiment analysis',
+    system: 'CRM System',
+    requestors: ['u5'],
+    requestorNames: ['Robert Wilson'],
+    assignedDevelopers: ['u3'],
+    assignedDeveloperNames: ['Mike Chen'],
+    createdBy: 'u5',
+    createdByName: 'Robert Wilson',
+    lineManager: 'u1',
+    lineManagerName: 'John Smith',
+    createdAt: lastWeek,
+    updatedAt: yesterday,
+    dueDate: nextWeek,
     testCases: [
-      'Display feedback data correctly',
-      'Filter by date range',
-      'Export reports to PDF',
-      'Real-time updates'
+      {
+        id: 'tc3',
+        description: 'Verify phone number validation accepts valid formats',
+        status: 'pending',
+        isPreDefined: true,
+        systemScenarioId: 'sc2'
+      },
+      {
+        id: 'tc4',
+        description: 'Verify phone number validation rejects invalid formats',
+        status: 'pending',
+        isPreDefined: false
+      }
+    ],
+    impactAnalysis: 'Low impact - only affects contact form. No breaking changes.',
+    architectureDesign: 'Client-side validation using regex pattern',
+    designReview: 'Approved - simple validation enhancement',
+    releases: [
+      {
+        id: 'r1',
+        type: 'binary',
+        rfcCode: 'RFC-2024-001',
+        description: 'UAT Release - Contact form validation',
+        releasedBy: 'u7',
+        releasedByName: 'David Martinez',
+        releasedAt: yesterday,
+        isManual: false
+      }
     ],
     comments: [],
     statusHistory: [
       {
-        status: 'pending',
-        changedBy: '3',
-        changedByName: 'Mike User',
-        changedAt: new Date('2024-01-12')
+        status: 'pending_manager_approval',
+        changedBy: 'u5',
+        changedByName: 'Robert Wilson',
+        changedAt: lastWeek
       },
       {
-        status: 'scope_defined',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2024-01-14')
+        status: 'user_approved',
+        changedBy: 'u1',
+        changedByName: 'John Smith',
+        changedAt: lastWeek
       },
       {
-        status: 'test_cases_added',
-        changedBy: '4',
-        changedByName: 'Emily Developer',
-        changedAt: new Date('2024-01-18')
+        status: 'in_development',
+        changedBy: 'u1',
+        changedByName: 'John Smith',
+        changedAt: lastWeek
+      },
+      {
+        status: 'uat_release',
+        changedBy: 'u3',
+        changedByName: 'Mike Chen',
+        changedAt: yesterday
+      },
+      {
+        status: 'uat_signoff',
+        changedBy: 'u3',
+        changedByName: 'Mike Chen',
+        changedAt: yesterday,
+        comment: 'Ready for UAT testing'
       }
     ],
-    attachments: [],
-    system: 'CRM System'
+    attachments: []
   },
   {
     id: 'REQ-004',
-    title: 'Mobile App Push Notifications',
-    description: 'Implement push notification system for mobile app',
-    status: 'development_complete',
-    priority: 'emergency',
-    createdBy: '5',
-    createdByName: 'Lisa User',
-    assignedTo: '1',
-    assignedToName: 'John Developer',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2023-12-05'),
-    updatedAt: new Date('2024-01-22'),
-    dueDate: new Date('2024-01-10'),
-    scope: 'Integrate Firebase Cloud Messaging for push notifications',
-    testCases: ['Send notification', 'Receive notification', 'Handle notification tap'],
-    comments: [],
-    statusHistory: [
-      {
-        status: 'pending',
-        changedBy: '5',
-        changedByName: 'Lisa User',
-        changedAt: new Date('2023-12-05')
-      },
-      {
-        status: 'approved',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2023-12-10')
-      },
-      {
-        status: 'in_progress',
-        changedBy: '1',
-        changedByName: 'John Developer',
-        changedAt: new Date('2023-12-15')
-      },
-      {
-        status: 'development_complete',
-        changedBy: '1',
-        changedByName: 'John Developer',
-        changedAt: new Date('2024-01-22')
-      }
-    ],
-    attachments: [],
-    system: 'Mobile App'
-  },
-  {
-    id: 'REQ-005',
-    title: 'Automated Report Generation',
-    description: 'Create automated monthly report generation for sales data',
-    status: 'approved',
+    title: 'Help desk ticket system integration',
+    type: 'user_support',
+    description: 'Users need guidance on how to submit support tickets through the new system',
+    implementationScope: 'Create user guide and training materials for new ticket system',
+    status: 'completed',
     priority: 'low',
-    createdBy: '3',
-    createdByName: 'Mike User',
-    assignedTo: '4',
-    assignedToName: 'Emily Developer',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2024-01-08'),
-    updatedAt: new Date('2024-01-16'),
-    dueDate: new Date('2024-02-28'),
-    scope: 'Generate PDF reports with sales charts and metrics on monthly schedule',
-    testCases: ['Generate report', 'Email report', 'Schedule automation'],
+    system: 'Support Portal',
+    requestors: ['u4', 'u5'],
+    requestorNames: ['Emily Davis', 'Robert Wilson'],
+    assignedDevelopers: ['u2'],
+    assignedDeveloperNames: ['Sarah Johnson'],
+    createdBy: 'u4',
+    createdByName: 'Emily Davis',
+    lineManager: 'u1',
+    lineManagerName: 'John Smith',
+    createdAt: twoWeeksAgo,
+    updatedAt: yesterday,
+    dueDate: lastWeek,
+    testCases: [
+      {
+        id: 'tc5',
+        description: 'Verify user guide is accessible and clear',
+        status: 'passed',
+        testedBy: 'u4',
+        testedByName: 'Emily Davis',
+        testedAt: yesterday,
+        comments: 'Guide is clear and comprehensive'
+      }
+    ],
+    impactAnalysis: 'Documentation only - no system changes',
+    releases: [],
+    postImplementationReview: 'Successfully deployed user guide. Positive feedback from users.',
+    releaseNotes: 'Added comprehensive user guide for support ticket system',
     comments: [],
     statusHistory: [
       {
-        status: 'pending',
-        changedBy: '3',
-        changedByName: 'Mike User',
-        changedAt: new Date('2024-01-08')
+        status: 'pending_manager_approval',
+        changedBy: 'u4',
+        changedByName: 'Emily Davis',
+        changedAt: twoWeeksAgo
       },
       {
-        status: 'approved',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2024-01-16')
+        status: 'completed',
+        changedBy: 'u2',
+        changedByName: 'Sarah Johnson',
+        changedAt: yesterday,
+        comment: 'Documentation completed and approved'
       }
     ],
-    attachments: [],
-    system: 'Analytics Platform'
-  },
-  {
-    id: 'REQ-006',
-    title: 'User Authentication Enhancement',
-    description: 'Add two-factor authentication to user login',
-    status: 'scope_defined',
-    priority: 'urgent',
-    createdBy: '5',
-    createdByName: 'Lisa User',
-    assignedTo: '1',
-    assignedToName: 'John Developer',
-    lineManager: '2',
-    lineManagerName: 'Sarah Manager',
-    createdAt: new Date('2023-11-14'),
-    updatedAt: new Date('2023-11-17'),
-    dueDate: new Date('2024-01-05'),
-    scope: 'Implement 2FA using SMS and authenticator app options',
-    comments: [],
-    statusHistory: [
-      {
-        status: 'pending',
-        changedBy: '5',
-        changedByName: 'Lisa User',
-        changedAt: new Date('2023-11-14')
-      },
-      {
-        status: 'scope_defined',
-        changedBy: '2',
-        changedByName: 'Sarah Manager',
-        changedAt: new Date('2023-11-17')
-      }
-    ],
-    attachments: [],
-    system: 'CRM System'
+    attachments: []
   }
 ];
 
-// Mock notifications
 export const mockNotifications: Notification[] = [
   {
     id: 'n1',
     type: 'approval',
     requestId: 'REQ-001',
-    requestTitle: 'New Employee Onboarding Portal',
-    message: 'Pending your approval',
+    requestTitle: 'Add export functionality to reports',
+    message: 'New request awaiting your approval',
     read: false,
-    createdAt: new Date('2024-01-15')
+    createdAt: yesterday
   },
   {
     id: 'n2',
     type: 'assignment',
-    requestId: 'REQ-006',
-    requestTitle: 'User Authentication Enhancement',
-    message: 'Assigned to you',
+    requestId: 'REQ-002',
+    requestTitle: 'Critical login bug - users locked out',
+    message: 'You have been assigned to this request',
     read: false,
-    createdAt: new Date('2024-01-17')
+    createdAt: yesterday
   },
   {
     id: 'n3',
     type: 'status_update',
-    requestId: 'REQ-004',
-    requestTitle: 'Mobile App Push Notifications',
-    message: 'Development completed - ready for validation',
-    read: false,
-    createdAt: new Date('2024-01-22')
-  },
-  {
-    id: 'n4',
-    type: 'comment',
-    requestId: 'REQ-002',
-    requestTitle: 'Inventory Management System Update',
-    message: 'New comment added',
+    requestId: 'REQ-003',
+    requestTitle: 'Update contact form validation',
+    message: 'Request is ready for UAT sign-off',
     read: true,
-    createdAt: new Date('2024-01-20')
+    createdAt: yesterday
   }
 ];
-
-// Current user (can be changed to simulate different roles)
-export let currentUser: User = mockUsers[1]; // Default to manager
-
-export const setCurrentUser = (role: UserRole) => {
-  currentUser = mockUsers.find(u => u.role === role) || mockUsers[0];
-};

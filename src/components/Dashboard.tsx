@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Request, Notification, UserRole } from '@/types/request';
+import { Request, Notification, UserRole, RequestType, Priority } from '@/types/request';
 import { mockRequests, mockNotifications, mockUsers, currentUser, setCurrentUser } from '@/data/mockData';
 import { AdvancedSearchBar } from './AdvancedSearchBar';
 import { NotificationsPanel } from './NotificationsPanel';
@@ -14,11 +14,11 @@ import {
   ListTodo, 
   Plus,
   Settings,
-  LayoutGrid,
-  LayoutList,
   Columns3,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Zap,
+  X
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -46,6 +46,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useToast } from './ui/use-toast';
 import { differenceInDays, differenceInMonths, addWeeks } from 'date-fns';
 import { DateRange } from 'react-day-picker';
+import { Calendar } from './ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { format } from 'date-fns';
+import { Badge } from './ui/badge';
 
 type FilterType = 'all' | 'pending_actions' | 'overdue' | 'dormant' | 'emergency' | 'top_system' | 'due_2weeks';
 
@@ -56,26 +60,21 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [userRole] = useState<UserRole>(currentUser.role);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'title', 'status', 'priority', 'assignee', 'system', 'dueDate']);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   
-  // Modal states
-  const [scopeModalOpen, setScopeModalOpen] = useState(false);
-  const [testCasesModalOpen, setTestCasesModalOpen] = useState(false);
-  const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [newRequestModalOpen, setNewRequestModalOpen] = useState(false);
-  const [editRequestModalOpen, setEditRequestModalOpen] = useState(false);
   
-  const [scopeText, setScopeText] = useState('');
-  const [testCaseText, setTestCaseText] = useState('');
-  const [commentText, setCommentText] = useState('');
-  
+  // New request form fields
   const [newRequestTitle, setNewRequestTitle] = useState('');
+  const [newRequestType, setNewRequestType] = useState<RequestType>('enhancement');
   const [newRequestDescription, setNewRequestDescription] = useState('');
-  const [newRequestPriority, setNewRequestPriority] = useState<'low' | 'medium' | 'high' | 'urgent' | 'emergency'>('medium');
+  const [newRequestImplementationScope, setNewRequestImplementationScope] = useState('');
   const [newRequestSystem, setNewRequestSystem] = useState('');
+  const [newRequestPriority, setNewRequestPriority] = useState<Priority>('medium');
+  const [newRequestDueDate, setNewRequestDueDate] = useState<Date>();
+  const [selectedRequestors, setSelectedRequestors] = useState<string[]>([]);
   
   const { toast } = useToast();
 
@@ -97,6 +96,14 @@ export default function Dashboard() {
     );
   };
 
+  const toggleRequestor = (userId: string) => {
+    setSelectedRequestors(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
   // Calculate gauge metrics
   const gaugeMetrics = useMemo(() => {
     const now = new Date();
@@ -106,12 +113,13 @@ export default function Dashboard() {
     
     const pendingActions = requests.filter(r => {
       if (userRole === 'developer') {
-        return r.assignedTo === currentUser.id && 
-          (r.status === 'approved' || r.status === 'scope_defined');
+        return r.assignedDevelopers?.includes(currentUser.id) && 
+          (r.status === 'user_approved' || r.status === 'in_development' || r.status === 'uat_release');
       } else if (userRole === 'line_manager') {
-        return r.status === 'pending' || r.status === 'test_cases_added';
+        return r.status === 'pending_manager_approval' || r.status === 'manager_review_test_cases';
       } else if (userRole === 'end_user') {
-        return r.status === 'development_complete' && r.createdBy === currentUser.id;
+        return (r.status === 'pending_user_approval' && r.requestors.includes(currentUser.id)) ||
+               (r.status === 'uat_signoff' && r.requestors.includes(currentUser.id));
       }
       return false;
     }).length;
@@ -132,7 +140,7 @@ export default function Dashboard() {
     return { ongoing, pendingActions, overdue, dormant, emergency };
   }, [requests, userRole]);
 
-  const topSystem = useMemo(() => {
+  const topSystemData = useMemo(() => {
     const systemCounts = requests.reduce((acc, r) => {
       if (r.system && r.status !== 'completed' && r.status !== 'cancelled') {
         acc[r.system] = (acc[r.system] || 0) + 1;
@@ -141,13 +149,23 @@ export default function Dashboard() {
     }, {} as Record<string, number>);
     
     const sorted = Object.entries(systemCounts).sort((a, b) => b[1] - a[1]);
-    return sorted[0]?.[0] || null;
+    return sorted[0] ? { name: sorted[0][0], count: sorted[0][1] } : null;
+  }, [requests]);
+
+  const due2WeeksCount = useMemo(() => {
+    const now = new Date();
+    const twoWeeksFromNow = addWeeks(now, 2);
+    return requests.filter(r => 
+      r.dueDate && 
+      new Date(r.dueDate) >= now && 
+      new Date(r.dueDate) <= twoWeeksFromNow &&
+      r.status !== 'completed' && r.status !== 'cancelled'
+    ).length;
   }, [requests]);
 
   const parseSearchQuery = (query: string) => {
     const filters: any = {};
     
-    // Handle LIKE operator with *
     if (query.includes('*')) {
       const likePattern = query.replace(/\*/g, '');
       return { likePattern };
@@ -170,21 +188,21 @@ export default function Dashboard() {
     const now = new Date();
     const twoWeeksFromNow = addWeeks(now, 2);
 
-    // Apply filter
     switch (activeFilter) {
       case 'pending_actions':
         if (userRole === 'developer') {
           filtered = requests.filter(r => 
-            r.assignedTo === currentUser.id && 
-            (r.status === 'approved' || r.status === 'scope_defined')
+            r.assignedDevelopers?.includes(currentUser.id) && 
+            (r.status === 'user_approved' || r.status === 'in_development' || r.status === 'uat_release')
           );
         } else if (userRole === 'line_manager') {
           filtered = requests.filter(r => 
-            r.status === 'pending' || r.status === 'test_cases_added'
+            r.status === 'pending_manager_approval' || r.status === 'manager_review_test_cases'
           );
         } else if (userRole === 'end_user') {
           filtered = requests.filter(r => 
-            r.status === 'development_complete' && r.createdBy === currentUser.id
+            (r.status === 'pending_user_approval' && r.requestors.includes(currentUser.id)) ||
+            (r.status === 'uat_signoff' && r.requestors.includes(currentUser.id))
           );
         }
         break;
@@ -205,8 +223,8 @@ export default function Dashboard() {
         filtered = requests.filter(r => r.priority === 'emergency');
         break;
       case 'top_system':
-        if (topSystem) {
-          filtered = requests.filter(r => r.system === topSystem);
+        if (topSystemData) {
+          filtered = requests.filter(r => r.system === topSystemData.name);
         }
         break;
       case 'due_2weeks':
@@ -219,7 +237,6 @@ export default function Dashboard() {
         break;
     }
 
-    // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const filters = parseSearchQuery(query);
@@ -231,8 +248,8 @@ export default function Dashboard() {
           r.title.toLowerCase().includes(pattern) ||
           r.description.toLowerCase().includes(pattern) ||
           r.status.toLowerCase().includes(pattern) ||
-          r.assignedToName?.toLowerCase().includes(pattern) ||
-          r.createdByName.toLowerCase().includes(pattern) ||
+          r.assignedDeveloperNames?.some(name => name.toLowerCase().includes(pattern)) ||
+          r.requestorNames.some(name => name.toLowerCase().includes(pattern)) ||
           r.system?.toLowerCase().includes(pattern)
         );
       } else {
@@ -242,28 +259,17 @@ export default function Dashboard() {
             r.title.toLowerCase().includes(query) ||
             r.description.toLowerCase().includes(query) ||
             r.status.toLowerCase().includes(query) ||
-            r.assignedToName?.toLowerCase().includes(query) ||
-            r.createdByName.toLowerCase().includes(query) ||
+            r.assignedDeveloperNames?.some(name => name.toLowerCase().includes(query)) ||
+            r.requestorNames.some(name => name.toLowerCase().includes(query)) ||
             r.system?.toLowerCase().includes(query);
           
-          let filterMatch = true;
-          if (Object.keys(filters).length > 0) {
-            if (filters.id && !r.id.toLowerCase().includes(filters.id)) filterMatch = false;
-            if (filters.title && !r.title.toLowerCase().includes(filters.title)) filterMatch = false;
-            if (filters.assignee && !r.assignedToName?.toLowerCase().includes(filters.assignee)) filterMatch = false;
-            if (filters.status && r.status !== filters.status) filterMatch = false;
-            if (filters.priority && r.priority !== filters.priority) filterMatch = false;
-            if (filters.creator && !r.createdByName.toLowerCase().includes(filters.creator)) filterMatch = false;
-            if (filters.system && !r.system?.toLowerCase().includes(filters.system)) filterMatch = false;
-          }
-          
-          return simpleMatch || filterMatch;
+          return simpleMatch;
         });
       }
     }
 
     return filtered;
-  }, [requests, searchQuery, activeFilter, userRole, topSystem]);
+  }, [requests, searchQuery, activeFilter, userRole, topSystemData]);
 
   const paginatedRequests = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -292,7 +298,8 @@ export default function Dashboard() {
   };
 
   const handleCreateRequest = () => {
-    if (!newRequestTitle.trim() || !newRequestDescription.trim()) {
+    if (!newRequestTitle.trim() || !newRequestDescription.trim() || !newRequestImplementationScope.trim() || 
+        !newRequestSystem.trim() || selectedRequestors.length === 0 || !newRequestDueDate) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -301,306 +308,66 @@ export default function Dashboard() {
       return;
     }
 
+    // Bug fixes can only have emergency priority
+    if (newRequestType === 'bug_fix' && newRequestPriority !== 'emergency') {
+      toast({
+        title: "Error",
+        description: "Bug fixes must have Emergency priority",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const requestorUsers = mockUsers.filter(u => selectedRequestors.includes(u.id));
+    const lineManager = mockUsers.find(u => u.role === 'line_manager');
+
     const newRequest: Request = {
       id: `REQ-${String(requests.length + 1).padStart(3, '0')}`,
       title: newRequestTitle,
+      type: newRequestType,
       description: newRequestDescription,
-      status: 'pending',
+      implementationScope: newRequestImplementationScope,
+      status: 'pending_manager_approval',
       priority: newRequestPriority,
+      system: newRequestSystem,
+      requestors: selectedRequestors,
+      requestorNames: requestorUsers.map(u => u.name),
       createdBy: currentUser.id,
       createdByName: currentUser.name,
-      lineManager: mockUsers.find(u => u.role === 'line_manager')?.id,
-      lineManagerName: mockUsers.find(u => u.role === 'line_manager')?.name,
+      lineManager: lineManager?.id,
+      lineManagerName: lineManager?.name,
       createdAt: new Date(),
       updatedAt: new Date(),
+      dueDate: newRequestDueDate,
+      testCases: [],
+      releases: [],
       comments: [],
       statusHistory: [{
-        status: 'pending',
+        status: 'pending_manager_approval',
         changedBy: currentUser.id,
         changedByName: currentUser.name,
         changedAt: new Date(),
         comment: 'Request created'
       }],
-      attachments: [],
-      system: newRequestSystem || undefined
+      attachments: []
     };
 
     setRequests(prev => [newRequest, ...prev]);
     setNewRequestModalOpen(false);
+    
+    // Reset form
     setNewRequestTitle('');
+    setNewRequestType('enhancement');
     setNewRequestDescription('');
-    setNewRequestPriority('medium');
+    setNewRequestImplementationScope('');
     setNewRequestSystem('');
+    setNewRequestPriority('medium');
+    setNewRequestDueDate(undefined);
+    setSelectedRequestors([]);
 
     toast({
       title: "Request Created",
       description: `Request ${newRequest.id} has been created successfully`,
-    });
-  };
-
-  const handleAddScope = () => {
-    if (!selectedRequest || !scopeText.trim()) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              scope: scopeText, 
-              status: 'scope_defined' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'scope_defined' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date(),
-                  comment: 'Scope defined'
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setScopeModalOpen(false);
-    setScopeText('');
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Scope Added",
-      description: "Request scope has been defined successfully",
-    });
-  };
-
-  const handleAddTestCases = () => {
-    if (!selectedRequest || !testCaseText.trim()) return;
-    
-    const testCases = testCaseText.split('\n').filter(tc => tc.trim());
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              testCases, 
-              status: 'test_cases_added' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'test_cases_added' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date()
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setTestCasesModalOpen(false);
-    setTestCaseText('');
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Test Cases Added",
-      description: "Test cases have been added successfully",
-    });
-  };
-
-  const handleApprove = () => {
-    if (!selectedRequest) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              status: 'approved' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'approved' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date(),
-                  comment: 'Approved'
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Request Approved",
-      description: "The request has been approved",
-    });
-  };
-
-  const handleReject = () => {
-    if (!selectedRequest) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              status: 'rejected' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'rejected' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date(),
-                  comment: 'Rejected'
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Request Rejected",
-      description: "The request has been rejected",
-      variant: "destructive"
-    });
-  };
-
-  const handleStartDevelopment = () => {
-    if (!selectedRequest) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              status: 'in_progress' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'in_progress' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date()
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Development Started",
-      description: "Request status updated to In Progress",
-    });
-  };
-
-  const handleCompleteDevelopment = () => {
-    if (!selectedRequest) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              status: 'development_complete' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'development_complete' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date()
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Development Complete",
-      description: "Request is ready for validation",
-    });
-  };
-
-  const handleValidate = () => {
-    if (!selectedRequest) return;
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { 
-              ...r, 
-              status: 'completed' as const, 
-              updatedAt: new Date(),
-              statusHistory: [
-                ...r.statusHistory,
-                {
-                  status: 'completed' as const,
-                  changedBy: currentUser.id,
-                  changedByName: currentUser.name,
-                  changedAt: new Date(),
-                  comment: 'Validated and accepted'
-                }
-              ]
-            }
-          : r
-      )
-    );
-    
-    setSelectedRequest(null);
-    
-    toast({
-      title: "Request Completed",
-      description: "The request has been validated and completed",
-    });
-  };
-
-  const handleAddComment = () => {
-    if (!selectedRequest || !commentText.trim()) return;
-    
-    const newComment = {
-      id: `c${Date.now()}`,
-      requestId: selectedRequest.id,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      content: commentText,
-      createdAt: new Date()
-    };
-    
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === selectedRequest.id
-          ? { ...r, comments: [...r.comments, newComment], updatedAt: new Date() }
-          : r
-      )
-    );
-    
-    setCommentModalOpen(false);
-    setCommentText('');
-    
-    toast({
-      title: "Comment Added",
-      description: "Your comment has been added to the request",
     });
   };
 
@@ -609,6 +376,13 @@ export default function Dashboard() {
       title: "Report Generated",
       description: `${reportType} report has been generated`,
     });
+  };
+
+  const handleRequestUpdate = (updatedRequest: Request) => {
+    setRequests(prev =>
+      prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+    );
+    setSelectedRequest(updatedRequest);
   };
 
   return (
@@ -658,10 +432,9 @@ export default function Dashboard() {
                 onMarkAsRead={handleMarkAsRead}
               />
               
-              <Avatar>
-                <AvatarImage src={currentUser.avatar} />
-                <AvatarFallback>{currentUser.name[0]}</AvatarFallback>
-              </Avatar>
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold">
+                {currentUser.name[0]}
+              </div>
             </div>
           </div>
         </div>
@@ -704,7 +477,9 @@ export default function Dashboard() {
             variant={activeFilter === 'dormant' ? 'default' : 'outline'}
             onClick={() => { setActiveFilter('dormant'); setCurrentPage(1); }}
             size="sm"
+            className="flex items-center gap-1"
           >
+            <Zap className="w-3 h-3" />
             Dormant ({gaugeMetrics.dormant})
           </Button>
           <Button 
@@ -714,13 +489,13 @@ export default function Dashboard() {
           >
             Emergency ({gaugeMetrics.emergency})
           </Button>
-          {topSystem && (
+          {topSystemData && (
             <Button 
               variant={activeFilter === 'top_system' ? 'default' : 'outline'}
               onClick={() => { setActiveFilter('top_system'); setCurrentPage(1); }}
               size="sm"
             >
-              {topSystem}
+              {topSystemData.name} ({topSystemData.count})
             </Button>
           )}
           <Button 
@@ -728,30 +503,13 @@ export default function Dashboard() {
             onClick={() => { setActiveFilter('due_2weeks'); setCurrentPage(1); }}
             size="sm"
           >
-            Due Next 2 Weeks
+            Due Next 2 Weeks ({due2WeeksCount})
           </Button>
         </div>
 
         {/* View Controls */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('list')}
-            >
-              <LayoutList className="w-4 h-4 mr-2" />
-              List
-            </Button>
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setViewMode('grid')}
-            >
-              <LayoutGrid className="w-4 h-4 mr-2" />
-              Grid
-            </Button>
-            
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -780,8 +538,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Column Headers for List View */}
-        {viewMode === 'list' && paginatedRequests.length > 0 && (
+        {/* Column Headers */}
+        {paginatedRequests.length > 0 && (
           <div className="mb-2 px-2">
             <div className="grid grid-cols-[100px_1fr_120px_120px_140px_180px_120px] gap-3 text-xs font-semibold text-muted-foreground">
               {visibleColumns.includes('id') && <div>ID</div>}
@@ -796,51 +554,27 @@ export default function Dashboard() {
         )}
 
         {/* Requests List */}
-        {viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {paginatedRequests.length > 0 ? (
-              paginatedRequests.map((request) => (
-                <RequestListItem
-                  key={request.id}
-                  request={request}
-                  onClick={setSelectedRequest}
-                  viewMode="grid"
-                  visibleColumns={visibleColumns}
-                />
-              ))
-            ) : (
-              <div className="col-span-full text-center py-12 border rounded-lg">
-                <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">No requests found</h3>
-                <p className="text-muted-foreground">
-                  {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current filter'}
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {paginatedRequests.length > 0 ? (
-              paginatedRequests.map((request) => (
-                <RequestListItem
-                  key={request.id}
-                  request={request}
-                  onClick={setSelectedRequest}
-                  viewMode="list"
-                  visibleColumns={visibleColumns}
-                />
-              ))
-            ) : (
-              <div className="text-center py-12 border rounded-lg">
-                <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">No requests found</h3>
-                <p className="text-muted-foreground">
-                  {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current filter'}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="space-y-2">
+          {paginatedRequests.length > 0 ? (
+            paginatedRequests.map((request) => (
+              <RequestListItem
+                key={request.id}
+                request={request}
+                onClick={setSelectedRequest}
+                viewMode="list"
+                visibleColumns={visibleColumns}
+              />
+            ))
+          ) : (
+            <div className="text-center py-12 border rounded-lg">
+              <ListTodo className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h3 className="text-lg font-semibold mb-2">No requests found</h3>
+              <p className="text-muted-foreground">
+                {searchQuery ? 'Try adjusting your search criteria' : 'No requests match your current filter'}
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -886,60 +620,89 @@ export default function Dashboard() {
         open={!!selectedRequest}
         onClose={() => setSelectedRequest(null)}
         userRole={userRole}
-        onApprove={handleApprove}
-        onReject={handleReject}
-        onAddScope={() => {
-          setScopeModalOpen(true);
-          setSelectedRequest(null);
-        }}
-        onAddTestCases={() => {
-          setTestCasesModalOpen(true);
-          setSelectedRequest(null);
-        }}
-        onStartDevelopment={handleStartDevelopment}
-        onCompleteDevelopment={handleCompleteDevelopment}
-        onValidate={handleValidate}
-        onAddComment={() => {
-          setCommentModalOpen(true);
-        }}
-        onEdit={() => {
-          setEditRequestModalOpen(true);
-        }}
+        onRequestUpdate={handleRequestUpdate}
       />
 
       {/* New Request Modal */}
       <Dialog open={newRequestModalOpen} onOpenChange={setNewRequestModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create New Request</DialogTitle>
+            <DialogTitle>Create New IT Request</DialogTitle>
             <DialogDescription>
-              Fill in the details for your new IT request
+              Fill in all required details for your IT request
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label htmlFor="title">Title *</Label>
-              <Input
-                id="title"
-                placeholder="Enter request title"
-                value={newRequestTitle}
-                onChange={(e) => setNewRequestTitle(e.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="title">Title *</Label>
+                <Input
+                  id="title"
+                  placeholder="Enter request title"
+                  value={newRequestTitle}
+                  onChange={(e) => setNewRequestTitle(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="type">Type *</Label>
+                <Select value={newRequestType} onValueChange={(v: RequestType) => {
+                  setNewRequestType(v);
+                  if (v === 'bug_fix') {
+                    setNewRequestPriority('emergency');
+                  }
+                }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="small_enhancement">Small Enhancement</SelectItem>
+                    <SelectItem value="enhancement">Enhancement</SelectItem>
+                    <SelectItem value="bug_fix">Bug Fix</SelectItem>
+                    <SelectItem value="user_support">User Support</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
             <div>
               <Label htmlFor="description">Description *</Label>
               <Textarea
                 id="description"
-                placeholder="Describe your request in detail"
+                placeholder="Describe the request in detail"
                 value={newRequestDescription}
                 onChange={(e) => setNewRequestDescription(e.target.value)}
-                rows={4}
+                rows={3}
               />
             </div>
+
+            <div>
+              <Label htmlFor="scope">Implementation Scope *</Label>
+              <Textarea
+                id="scope"
+                placeholder="Describe the implementation scope"
+                value={newRequestImplementationScope}
+                onChange={(e) => setNewRequestImplementationScope(e.target.value)}
+                rows={3}
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="priority">Priority</Label>
-                <Select value={newRequestPriority} onValueChange={(v: any) => setNewRequestPriority(v)}>
+                <Label htmlFor="system">System *</Label>
+                <Input
+                  id="system"
+                  placeholder="e.g., CRM System"
+                  value={newRequestSystem}
+                  onChange={(e) => setNewRequestSystem(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="priority">Priority *</Label>
+                <Select 
+                  value={newRequestPriority} 
+                  onValueChange={(v: Priority) => setNewRequestPriority(v)}
+                  disabled={newRequestType === 'bug_fix'}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -951,16 +714,65 @@ export default function Dashboard() {
                     <SelectItem value="emergency">Emergency</SelectItem>
                   </SelectContent>
                 </Select>
+                {newRequestType === 'bug_fix' && (
+                  <p className="text-xs text-muted-foreground mt-1">Bug fixes must have Emergency priority</p>
+                )}
               </div>
-              <div>
-                <Label htmlFor="system">System</Label>
-                <Input
-                  id="system"
-                  placeholder="e.g., CRM System"
-                  value={newRequestSystem}
-                  onChange={(e) => setNewRequestSystem(e.target.value)}
-                />
+            </div>
+
+            <div>
+              <Label htmlFor="dueDate">Due Date *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    {newRequestDueDate ? format(newRequestDueDate, 'MM/dd/yyyy') : 'Select due date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={newRequestDueDate}
+                    onSelect={setNewRequestDueDate}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div>
+              <Label>Requestors * (Select at least one)</Label>
+              <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                {mockUsers.filter(u => u.role === 'end_user').map(user => (
+                  <div key={user.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={`requestor-${user.id}`}
+                      checked={selectedRequestors.includes(user.id)}
+                      onChange={() => toggleRequestor(user.id)}
+                      className="rounded"
+                    />
+                    <label htmlFor={`requestor-${user.id}`} className="text-sm cursor-pointer flex-1">
+                      {user.name} ({user.email})
+                    </label>
+                  </div>
+                ))}
               </div>
+              {selectedRequestors.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {selectedRequestors.map(id => {
+                    const user = mockUsers.find(u => u.id === id);
+                    return (
+                      <Badge key={id} variant="secondary" className="text-xs">
+                        {user?.name}
+                        <X 
+                          className="w-3 h-3 ml-1 cursor-pointer" 
+                          onClick={() => toggleRequestor(id)}
+                        />
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -968,96 +780,6 @@ export default function Dashboard() {
               Cancel
             </Button>
             <Button onClick={handleCreateRequest}>Create Request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Scope Modal */}
-      <Dialog open={scopeModalOpen} onOpenChange={setScopeModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Scope Definition</DialogTitle>
-            <DialogDescription>
-              Define the scope and requirements for this request
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="scope">Scope Details</Label>
-              <Textarea
-                id="scope"
-                placeholder="Enter detailed scope definition..."
-                value={scopeText}
-                onChange={(e) => setScopeText(e.target.value)}
-                rows={6}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setScopeModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddScope}>Save Scope</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Test Cases Modal */}
-      <Dialog open={testCasesModalOpen} onOpenChange={setTestCasesModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Test Cases</DialogTitle>
-            <DialogDescription>
-              Define test cases for this request (one per line)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="testcases">Test Cases</Label>
-              <Textarea
-                id="testcases"
-                placeholder="Enter test cases (one per line)..."
-                value={testCaseText}
-                onChange={(e) => setTestCaseText(e.target.value)}
-                rows={8}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTestCasesModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddTestCases}>Save Test Cases</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Comment Modal */}
-      <Dialog open={commentModalOpen} onOpenChange={setCommentModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Comment</DialogTitle>
-            <DialogDescription>
-              Add a comment to this request
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="comment">Comment</Label>
-              <Textarea
-                id="comment"
-                placeholder="Enter your comment..."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                rows={4}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCommentModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddComment}>Add Comment</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

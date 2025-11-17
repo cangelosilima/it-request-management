@@ -1,18 +1,28 @@
+export type RequestType = 'small_enhancement' | 'enhancement' | 'bug_fix' | 'user_support';
+
 export type RequestStatus = 
-  | 'pending'
-  | 'scope_defined'
-  | 'test_cases_added'
-  | 'approved'
-  | 'in_progress'
-  | 'development_complete'
+  | 'pending_manager_approval'
+  | 'pending_user_approval'
+  | 'user_approved'
+  | 'user_rejected'
+  | 'manager_review_test_cases'
+  | 'pending_design_review'
+  | 'in_development'
+  | 'uat_release'
+  | 'uat_signoff'
+  | 'cab_review'
+  | 'production_release'
   | 'completed'
   | 'rejected'
-  | 'rework_needed'
   | 'cancelled';
 
-export type UserRole = 'developer' | 'line_manager' | 'end_user';
+export type UserRole = 'developer' | 'line_manager' | 'end_user' | 'devops';
 
 export type Priority = 'low' | 'medium' | 'high' | 'urgent' | 'emergency';
+
+export type ReleaseType = 'binary' | 'database';
+
+export type TestCaseStatus = 'passed' | 'failed' | 'partially_passed' | 'pending';
 
 export interface User {
   id: string;
@@ -21,6 +31,30 @@ export interface User {
   role: UserRole;
   avatar?: string;
   team?: string;
+}
+
+export interface TestCase {
+  id: string;
+  description: string;
+  status: TestCaseStatus;
+  testedBy?: string;
+  testedByName?: string;
+  testedAt?: Date;
+  comments?: string;
+  attachments?: Attachment[];
+  isPreDefined?: boolean;
+  systemScenarioId?: string;
+}
+
+export interface Release {
+  id: string;
+  type: ReleaseType;
+  rfcCode: string;
+  description: string;
+  releasedBy?: string;
+  releasedByName?: string;
+  releasedAt?: Date;
+  isManual: boolean;
 }
 
 export interface Comment {
@@ -54,24 +88,53 @@ export interface Attachment {
 export interface Request {
   id: string;
   title: string;
+  type: RequestType;
   description: string;
+  implementationScope: string;
   status: RequestStatus;
   priority: Priority;
+  system: string;
+  
+  // Requestors (multiple users)
+  requestors: string[];
+  requestorNames: string[];
+  
+  // Assigned developers (multiple)
+  assignedDevelopers?: string[];
+  assignedDeveloperNames?: string[];
+  
   createdBy: string;
   createdByName: string;
-  assignedTo?: string;
-  assignedToName?: string;
   lineManager?: string;
   lineManagerName?: string;
+  
   createdAt: Date;
   updatedAt: Date;
-  dueDate?: Date;
-  scope?: string;
-  testCases?: string[];
+  dueDate: Date;
+  
+  // Test cases with status tracking
+  testCases: TestCase[];
+  
+  // Impact Analysis
+  impactAnalysis?: string;
+  
+  // Architecture & Design
+  architectureDesign?: string;
+  designReview?: string;
+  
+  // Releases
+  releases: Release[];
+  
+  // Post Implementation
+  postImplementationReview?: string;
+  releaseNotes?: string;
+  
+  // User approval justification
+  userApprovalJustification?: string;
+  
   comments: Comment[];
   statusHistory: StatusHistory[];
   attachments: Attachment[];
-  system?: string;
 }
 
 export interface Notification {
@@ -89,4 +152,11 @@ export interface SearchAttribute {
   label: string;
   type: 'text' | 'select' | 'date';
   options?: string[];
+}
+
+export interface SystemScenario {
+  id: string;
+  systemName: string;
+  scenarioName: string;
+  description: string;
 }
