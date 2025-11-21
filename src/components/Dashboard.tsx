@@ -18,7 +18,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
-  X
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -52,6 +56,8 @@ import { format } from 'date-fns';
 import { Badge } from './ui/badge';
 
 type FilterType = 'all' | 'pending_actions' | 'overdue' | 'dormant' | 'emergency' | 'top_system' | 'due_2weeks';
+type SortField = 'id' | 'title' | 'status' | 'priority' | 'dueDate' | 'createdAt';
+type SortDirection = 'asc' | 'desc';
 
 export default function Dashboard() {
   const [requests, setRequests] = useState<Request[]>(mockRequests);
@@ -63,6 +69,10 @@ export default function Dashboard() {
   const [visibleColumns, setVisibleColumns] = useState<string[]>(['id', 'title', 'status', 'priority', 'assignee', 'system', 'dueDate']);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  
+  // Sorting states
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
   const [newRequestModalOpen, setNewRequestModalOpen] = useState(false);
   
@@ -183,6 +193,26 @@ export default function Dashboard() {
     return filters;
   };
 
+  const parseAdvancedSearch = (query: string) => {
+    const filters: any = {};
+    
+    if (query.includes('*')) {
+      const likePattern = query.replace(/\*/g, '');
+      return { likePattern };
+    }
+    
+    const parts = query.split(/\s+(AND|OR)\s+/i);
+    
+    parts.forEach(part => {
+      if (part.includes('=')) {
+        const [key, value] = part.split('=').map(s => s.trim());
+        filters[key.toLowerCase()] = value.toLowerCase();
+      }
+    });
+    
+    return filters;
+  };
+
   const filteredRequests = useMemo(() => {
     let filtered = requests;
     const now = new Date();
@@ -201,16 +231,17 @@ export default function Dashboard() {
           );
         } else if (userRole === 'end_user') {
           filtered = requests.filter(r => 
-            (r.status === 'pending_user_approval' && r.requestors.includes(currentUser.id)) ||
-            (r.status === 'uat_signoff' && r.requestors.includes(currentUser.id))
+            r.requestors.includes(currentUser.id) && 
+            (r.status === 'pending_user_approval' || r.status === 'uat_signoff')
           );
         }
         break;
       case 'overdue':
-        filtered = requests.filter(r => 
-          r.dueDate && new Date(r.dueDate) < now && 
-          r.status !== 'completed' && r.status !== 'cancelled'
-        );
+        filtered = requests.filter(r => {
+          if (!r.dueDate) return false;
+          return new Date(r.dueDate) < now && 
+            r.status !== 'completed' && r.status !== 'cancelled';
+        });
         break;
       case 'dormant':
         filtered = requests.filter(r => {
@@ -224,7 +255,10 @@ export default function Dashboard() {
         break;
       case 'top_system':
         if (topSystemData) {
-          filtered = requests.filter(r => r.system === topSystemData.name);
+          filtered = requests.filter(r => 
+            r.system === topSystemData.name && 
+            r.status !== 'completed' && r.status !== 'cancelled'
+          );
         }
         break;
       case 'due_2weeks':
@@ -237,31 +271,35 @@ export default function Dashboard() {
         break;
     }
 
-    if (searchQuery) {
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filters = parseSearchQuery(query);
       
-      if (filters.likePattern) {
-        const pattern = filters.likePattern.toLowerCase();
-        filtered = filtered.filter(r => 
-          r.id.toLowerCase().includes(pattern) ||
-          r.title.toLowerCase().includes(pattern) ||
-          r.description.toLowerCase().includes(pattern) ||
-          r.status.toLowerCase().includes(pattern) ||
-          r.assignedDeveloperNames?.some(name => name.toLowerCase().includes(pattern)) ||
-          r.requestorNames.some(name => name.toLowerCase().includes(pattern)) ||
-          r.system?.toLowerCase().includes(pattern)
-        );
+      if (query.includes('=')) {
+        const filters = parseAdvancedSearch(query);
+        
+        filtered = filtered.filter(request => {
+          if (filters.id && !request.id.toLowerCase().includes(filters.id)) return false;
+          if (filters.title && !request.title.toLowerCase().includes(filters.title)) return false;
+          if (filters.status && !request.status.toLowerCase().includes(filters.status)) return false;
+          if (filters.priority && !request.priority.toLowerCase().includes(filters.priority)) return false;
+          if (filters.system && !request.system?.toLowerCase().includes(filters.system)) return false;
+          if (filters.assignee) {
+            const assignees = request.assignedDevelopers?.map(id => {
+              const user = mockUsers.find(u => u.id === id);
+              return user?.name.toLowerCase() || '';
+            }) || [];
+            if (!assignees.some(name => name.includes(filters.assignee!))) return false;
+          }
+          return true;
+        });
       } else {
-        filtered = filtered.filter(r => {
+        filtered = filtered.filter(request => {
           const simpleMatch = 
-            r.id.toLowerCase().includes(query) ||
-            r.title.toLowerCase().includes(query) ||
-            r.description.toLowerCase().includes(query) ||
-            r.status.toLowerCase().includes(query) ||
-            r.assignedDeveloperNames?.some(name => name.toLowerCase().includes(query)) ||
-            r.requestorNames.some(name => name.toLowerCase().includes(query)) ||
-            r.system?.toLowerCase().includes(query);
+            request.id.toLowerCase().includes(query) ||
+            request.title.toLowerCase().includes(query) ||
+            request.status.toLowerCase().includes(query) ||
+            request.priority.toLowerCase().includes(query) ||
+            request.system?.toLowerCase().includes(query);
           
           return simpleMatch;
         });
@@ -271,13 +309,58 @@ export default function Dashboard() {
     return filtered;
   }, [requests, searchQuery, activeFilter, userRole, topSystemData]);
 
+  const sortedRequests = useMemo(() => {
+    const sorted = [...filteredRequests];
+    
+    sorted.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      switch (sortField) {
+        case 'id':
+          aValue = a.id;
+          bValue = b.id;
+          break;
+        case 'title':
+          aValue = a.title.toLowerCase();
+          bValue = b.title.toLowerCase();
+          break;
+        case 'status':
+          aValue = a.status;
+          bValue = b.status;
+          break;
+        case 'priority':
+          const priorityOrder = { emergency: 5, urgent: 4, high: 3, medium: 2, low: 1 };
+          aValue = priorityOrder[a.priority];
+          bValue = priorityOrder[b.priority];
+          break;
+        case 'dueDate':
+          aValue = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+          bValue = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [filteredRequests, sortField, sortDirection]);
+
   const paginatedRequests = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    return filteredRequests.slice(startIndex, endIndex);
-  }, [filteredRequests, currentPage]);
+    return sortedRequests.slice(startIndex, endIndex);
+  }, [sortedRequests, currentPage]);
 
-  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
+  const totalPages = Math.ceil(sortedRequests.length / itemsPerPage);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -383,6 +466,25 @@ export default function Dashboard() {
       prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
     );
     setSelectedRequest(updatedRequest);
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1);
+  };
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 ml-1 inline opacity-50" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="w-3 h-3 ml-1 inline" />
+      : <ArrowDown className="w-3 h-3 ml-1 inline" />;
   };
 
   return (
@@ -534,7 +636,7 @@ export default function Dashboard() {
           </div>
 
           <div className="text-sm text-muted-foreground">
-            Showing {paginatedRequests.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredRequests.length)} of {filteredRequests.length} requests
+            Showing {paginatedRequests.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, sortedRequests.length)} of {sortedRequests.length} requests
           </div>
         </div>
 
@@ -542,13 +644,48 @@ export default function Dashboard() {
         {paginatedRequests.length > 0 && (
           <div className="mb-2 px-2">
             <div className="grid grid-cols-[100px_1fr_120px_120px_140px_180px_120px] gap-3 text-xs font-semibold text-muted-foreground">
-              {visibleColumns.includes('id') && <div>ID</div>}
-              {visibleColumns.includes('title') && <div>Title</div>}
-              {visibleColumns.includes('status') && <div className="text-center">Status</div>}
-              {visibleColumns.includes('priority') && <div className="text-center">Priority</div>}
+              {visibleColumns.includes('id') && (
+                <div 
+                  className="cursor-pointer hover:text-foreground flex items-center"
+                  onClick={() => handleSort('id')}
+                >
+                  ID{getSortIcon('id')}
+                </div>
+              )}
+              {visibleColumns.includes('title') && (
+                <div 
+                  className="cursor-pointer hover:text-foreground flex items-center"
+                  onClick={() => handleSort('title')}
+                >
+                  Title{getSortIcon('title')}
+                </div>
+              )}
+              {visibleColumns.includes('status') && (
+                <div 
+                  className="text-center cursor-pointer hover:text-foreground flex items-center justify-center"
+                  onClick={() => handleSort('status')}
+                >
+                  Status{getSortIcon('status')}
+                </div>
+              )}
+              {visibleColumns.includes('priority') && (
+                <div 
+                  className="text-center cursor-pointer hover:text-foreground flex items-center justify-center"
+                  onClick={() => handleSort('priority')}
+                >
+                  Priority{getSortIcon('priority')}
+                </div>
+              )}
               {visibleColumns.includes('assignee') && <div className="text-center">Assignee</div>}
               {visibleColumns.includes('system') && <div className="text-center">System</div>}
-              {visibleColumns.includes('dueDate') && <div className="text-center">Due Date</div>}
+              {visibleColumns.includes('dueDate') && (
+                <div 
+                  className="text-center cursor-pointer hover:text-foreground flex items-center justify-center"
+                  onClick={() => handleSort('dueDate')}
+                >
+                  Due Date{getSortIcon('dueDate')}
+                </div>
+              )}
             </div>
           </div>
         )}
