@@ -85,6 +85,13 @@ export default function Dashboard() {
   const [newRequestPriority, setNewRequestPriority] = useState<Priority>('medium');
   const [newRequestDueDate, setNewRequestDueDate] = useState<Date>();
   const [selectedRequestors, setSelectedRequestors] = useState<string[]>([]);
+  const [selectedDevelopers, setSelectedDevelopers] = useState<string[]>([]);
+  
+  // Search states for new request modal
+  const [requestorSearchQuery, setRequestorSearchQuery] = useState('');
+  const [developerSearchQuery, setDeveloperSearchQuery] = useState('');
+  const [systemSearchQuery, setSystemSearchQuery] = useState('');
+  const [showSystemSuggestions, setShowSystemSuggestions] = useState(false);
   
   const { toast } = useToast();
 
@@ -107,12 +114,97 @@ export default function Dashboard() {
   };
 
   const toggleRequestor = (userId: string) => {
-    setSelectedRequestors(prev =>
-      prev.includes(userId)
+    setSelectedRequestors(prev => 
+      prev.includes(userId) 
         ? prev.filter(id => id !== userId)
         : [...prev, userId]
     );
   };
+
+  const toggleDeveloper = (userId: string) => {
+    setSelectedDevelopers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  // Get available systems from existing requests
+  const availableSystems = useMemo(() => {
+    const systems = new Set(requests.map(r => r.system).filter(Boolean));
+    return Array.from(systems).sort();
+  }, [requests]);
+
+  // Get recent requestors for selected system
+  const getRecentRequestorsForSystem = (system: string) => {
+    if (!system) return [];
+    const recentRequests = requests
+      .filter(r => r.system === system)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+    
+    const requestorIds = new Set<string>();
+    recentRequests.forEach(r => r.requestors.forEach(id => requestorIds.add(id)));
+    
+    return mockUsers.filter(u => requestorIds.has(u.id) && u.role === 'end_user');
+  };
+
+  // Get recent developers for selected system
+  const getRecentDevelopersForSystem = (system: string) => {
+    if (!system) return [];
+    const recentRequests = requests
+      .filter(r => r.system === system && r.assignedDevelopers)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+    
+    const developerIds = new Set<string>();
+    recentRequests.forEach(r => r.assignedDevelopers?.forEach(id => developerIds.add(id)));
+    
+    return mockUsers.filter(u => developerIds.has(u.id) && u.role === 'developer');
+  };
+
+  // Filter requestors based on search
+  const filteredRequestors = useMemo(() => {
+    const allRequestors = mockUsers.filter(u => u.role === 'end_user');
+    if (!requestorSearchQuery.trim()) {
+      // Show recent requestors for system if selected
+      if (newRequestSystem) {
+        const recent = getRecentRequestorsForSystem(newRequestSystem);
+        if (recent.length > 0) return recent;
+      }
+      return allRequestors;
+    }
+    const query = requestorSearchQuery.toLowerCase();
+    return allRequestors.filter(u => 
+      u.name.toLowerCase().includes(query) || 
+      u.email.toLowerCase().includes(query)
+    );
+  }, [requestorSearchQuery, newRequestSystem, mockUsers, requests]);
+
+  // Filter developers based on search
+  const filteredDevelopers = useMemo(() => {
+    const allDevelopers = mockUsers.filter(u => u.role === 'developer');
+    if (!developerSearchQuery.trim()) {
+      // Show recent developers for system if selected
+      if (newRequestSystem) {
+        const recent = getRecentDevelopersForSystem(newRequestSystem);
+        if (recent.length > 0) return recent;
+      }
+      return allDevelopers;
+    }
+    const query = developerSearchQuery.toLowerCase();
+    return allDevelopers.filter(u => 
+      u.name.toLowerCase().includes(query) || 
+      u.email.toLowerCase().includes(query)
+    );
+  }, [developerSearchQuery, newRequestSystem, mockUsers, requests]);
+
+  // Filter systems based on search
+  const filteredSystems = useMemo(() => {
+    if (!systemSearchQuery.trim()) return availableSystems;
+    const query = systemSearchQuery.toLowerCase();
+    return availableSystems.filter(s => s.toLowerCase().includes(query));
+  }, [systemSearchQuery, availableSystems]);
 
   // Calculate gauge metrics
   const gaugeMetrics = useMemo(() => {
@@ -419,12 +511,14 @@ export default function Dashboard() {
       createdByName: currentUser.name,
       lineManager: lineManager?.id,
       lineManagerName: lineManager?.name,
+      assignedDevelopers: selectedDevelopers.length > 0 ? selectedDevelopers : undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
       dueDate: newRequestDueDate,
       testCases: [],
       releases: [],
       comments: [],
+      serviceNowRFCs: [],
       statusHistory: [{
         status: 'pending_manager_approval',
         changedBy: currentUser.id,
@@ -447,6 +541,10 @@ export default function Dashboard() {
     setNewRequestPriority('medium');
     setNewRequestDueDate(undefined);
     setSelectedRequestors([]);
+    setSelectedDevelopers([]);
+    setRequestorSearchQuery('');
+    setDeveloperSearchQuery('');
+    setSystemSearchQuery('');
 
     toast({
       title: "Request Created",
@@ -826,12 +924,40 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="system">System *</Label>
-                <Input
-                  id="system"
-                  placeholder="e.g., CRM System"
-                  value={newRequestSystem}
-                  onChange={(e) => setNewRequestSystem(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="system"
+                    placeholder="Search for a system..."
+                    value={systemSearchQuery}
+                    onChange={(e) => {
+                      setSystemSearchQuery(e.target.value);
+                      setShowSystemSuggestions(true);
+                    }}
+                    onFocus={() => setShowSystemSuggestions(true)}
+                  />
+                  {showSystemSuggestions && filteredSystems.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-background border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {filteredSystems.map(system => (
+                        <div
+                          key={system}
+                          className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          onClick={() => {
+                            setNewRequestSystem(system);
+                            setSystemSearchQuery(system);
+                            setShowSystemSuggestions(false);
+                          }}
+                        >
+                          {system}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {newRequestSystem && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Selected: {newRequestSystem}
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="priority">Priority *</Label>
@@ -878,21 +1004,40 @@ export default function Dashboard() {
 
             <div>
               <Label>Requestors * (Select at least one)</Label>
+              <div className="mb-2">
+                <Input
+                  placeholder="Search requestors by name or email..."
+                  value={requestorSearchQuery}
+                  onChange={(e) => setRequestorSearchQuery(e.target.value)}
+                  className="w-full"
+                />
+                {newRequestSystem && getRecentRequestorsForSystem(newRequestSystem).length > 0 && !requestorSearchQuery && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Showing recent requestors for {newRequestSystem}
+                  </p>
+                )}
+              </div>
               <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
-                {mockUsers.filter(u => u.role === 'end_user').map(user => (
-                  <div key={user.id} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id={`requestor-${user.id}`}
-                      checked={selectedRequestors.includes(user.id)}
-                      onChange={() => toggleRequestor(user.id)}
-                      className="rounded"
-                    />
-                    <label htmlFor={`requestor-${user.id}`} className="text-sm cursor-pointer flex-1">
-                      {user.name} ({user.email})
-                    </label>
-                  </div>
-                ))}
+                {filteredRequestors.length > 0 ? (
+                  filteredRequestors.map(user => (
+                    <div key={user.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`requestor-${user.id}`}
+                        checked={selectedRequestors.includes(user.id)}
+                        onChange={() => toggleRequestor(user.id)}
+                        className="rounded"
+                      />
+                      <label htmlFor={`requestor-${user.id}`} className="text-sm cursor-pointer flex-1">
+                        {user.name} ({user.email})
+                      </label>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-2">
+                    No requestors found
+                  </p>
+                )}
               </div>
               {selectedRequestors.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
@@ -904,6 +1049,61 @@ export default function Dashboard() {
                         <X 
                           className="w-3 h-3 ml-1 cursor-pointer" 
                           onClick={() => toggleRequestor(id)}
+                        />
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label>Developers (Optional - can be assigned later)</Label>
+              <div className="mb-2">
+                <Input
+                  placeholder="Search developers by name or email..."
+                  value={developerSearchQuery}
+                  onChange={(e) => setDeveloperSearchQuery(e.target.value)}
+                  className="w-full"
+                />
+                {newRequestSystem && getRecentDevelopersForSystem(newRequestSystem).length > 0 && !developerSearchQuery && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Showing recent developers for {newRequestSystem}
+                  </p>
+                )}
+              </div>
+              <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                {filteredDevelopers.length > 0 ? (
+                  filteredDevelopers.map(user => (
+                    <div key={user.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`developer-${user.id}`}
+                        checked={selectedDevelopers.includes(user.id)}
+                        onChange={() => toggleDeveloper(user.id)}
+                        className="rounded"
+                      />
+                      <label htmlFor={`developer-${user.id}`} className="text-sm cursor-pointer flex-1">
+                        {user.name} ({user.email})
+                      </label>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-2">
+                    No developers found
+                  </p>
+                )}
+              </div>
+              {selectedDevelopers.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {selectedDevelopers.map(id => {
+                    const user = mockUsers.find(u => u.id === id);
+                    return (
+                      <Badge key={id} variant="secondary" className="text-xs">
+                        {user?.name}
+                        <X 
+                          className="w-3 h-3 ml-1 cursor-pointer" 
+                          onClick={() => toggleDeveloper(id)}
                         />
                       </Badge>
                     );
