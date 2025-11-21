@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Request, UserRole, TestCase, Release, ReleaseType, TestCaseStatus } from '@/types/request';
+import { Request, UserRole, TestCase, Release, ReleaseType, TestCaseStatus, ReleaseStatus } from '@/types/request';
 import { StatusBadge } from './StatusBadge';
 import { PriorityBadge } from './PriorityBadge';
 import { RequestTimeline } from './RequestTimeline';
@@ -41,6 +41,7 @@ export function RequestDetailModal({
   const [releaseType, setReleaseType] = useState<ReleaseType>('binary');
   const [rfcCode, setRfcCode] = useState('');
   const [releaseDescription, setReleaseDescription] = useState('');
+  const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus>('pending');
   const [testCaseStatuses, setTestCaseStatuses] = useState<Record<string, TestCaseStatus>>({});
   const [testCaseComments, setTestCaseComments] = useState<Record<string, string>>({});
   const [approvalJustification, setApprovalJustification] = useState('');
@@ -68,6 +69,7 @@ export function RequestDetailModal({
       setReleaseType('binary');
       setRfcCode('');
       setReleaseDescription('');
+      setReleaseStatus('pending');
     }
     if (type === 'uat_signoff') {
       const statuses: Record<string, TestCaseStatus> = {};
@@ -207,7 +209,8 @@ export function RequestDetailModal({
           releasedBy: currentUser.id,
           releasedByName: currentUser.name,
           releasedAt: new Date(),
-          isManual: true
+          isManual: true,
+          status: releaseStatus
         };
         updatedRequest.releases = [...request.releases, newRelease];
         if (request.status === 'in_development') {
@@ -513,22 +516,46 @@ export function RequestDetailModal({
               {request.releases.length > 0 && (
                 <div>
                   <h4 className="font-semibold mb-2 text-sm">Releases</h4>
-                  <div className="space-y-2">
-                    {request.releases.map((rel) => (
-                      <div key={rel.id} className="bg-muted/30 rounded-lg p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <Badge variant={rel.type === 'binary' ? 'default' : 'secondary'}>{rel.type.toUpperCase()}</Badge>
-                            <span className="text-sm font-mono ml-2">{rel.rfcCode}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {rel.releasedAt && format(rel.releasedAt, 'MM/dd/yyyy HH:mm')}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-2">{rel.description}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Released by {rel.releasedByName}</p>
-                      </div>
-                    ))}
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 font-semibold">RFC Code</th>
+                          <th className="text-left p-3 font-semibold">Type</th>
+                          <th className="text-left p-3 font-semibold">Request Date</th>
+                          <th className="text-left p-3 font-semibold">Request Developer</th>
+                          <th className="text-left p-3 font-semibold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {request.releases.map((rel, index) => (
+                          <tr key={rel.id} className={index % 2 === 0 ? 'bg-background' : 'bg-muted/20'}>
+                            <td className="p-3 font-mono text-xs">{rel.rfcCode}</td>
+                            <td className="p-3">
+                              <Badge variant={rel.type === 'binary' ? 'default' : 'secondary'} className="text-xs">
+                                {rel.type.toUpperCase()}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-muted-foreground">
+                              {rel.releasedAt && format(rel.releasedAt, 'MM/dd/yyyy HH:mm')}
+                            </td>
+                            <td className="p-3">{rel.releasedByName || 'N/A'}</td>
+                            <td className="p-3">
+                              <Badge 
+                                variant={
+                                  rel.status === 'concluded' ? 'default' : 
+                                  rel.status === 'cancelled' ? 'destructive' : 
+                                  'secondary'
+                                }
+                                className="text-xs"
+                              >
+                                {rel.status ? rel.status.charAt(0).toUpperCase() + rel.status.slice(1) : 'Pending'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
@@ -729,7 +756,20 @@ export function RequestDetailModal({
                   </div>
                 </div>
                 <div>
-                  <Label>Release Description *</Label>
+                  <Label>Status *</Label>
+                  <Select value={releaseStatus} onValueChange={(v: ReleaseStatus) => setReleaseStatus(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="concluded">Concluded</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Description *</Label>
                   <Textarea
                     placeholder="Describe the release..."
                     value={releaseDescription}

@@ -24,6 +24,8 @@ export type ReleaseType = 'binary' | 'database';
 
 export type TestCaseStatus = 'passed' | 'failed' | 'partially_passed' | 'pending';
 
+export type ReleaseStatus = 'pending' | 'concluded' | 'cancelled';
+
 export interface User {
   id: string;
   name: string;
@@ -55,6 +57,7 @@ export interface Release {
   releasedByName?: string;
   releasedAt?: Date;
   isManual: boolean;
+  status?: ReleaseStatus;
 }
 
 export interface Comment {

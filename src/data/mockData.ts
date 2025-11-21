@@ -264,7 +264,8 @@ export const mockRequests: Request[] = [
         releasedBy: 'u7',
         releasedByName: 'David Martinez',
         releasedAt: yesterday,
-        isManual: false
+        isManual: false,
+        status: 'concluded'
       }
     ],
     comments: [],
